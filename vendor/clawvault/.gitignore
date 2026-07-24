@@ -1,0 +1,97 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# ClawVault data
+*.db
+*.sqlite
+audit.db
+
+# Config with secrets
+config.yaml
+!config.example.yaml
+push.sh
+
+# OS
+.DS_Store
+Thumbs.db
+
+# JavaScript / Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Rust (Phase 3)
+target/
+Cargo.lock
+
+.windsurf
+doc/develop
+
+.claude
+.qodo
+.windsurf
+
+# AI-related files
+CLAUDE.md
+AGENTS.md
+HANDOFF.md
+ISSUES.md
+.clawhub/push.sh
+
+# Local release notes / handoff drafts
+CHANGELOG.md
+CHANGELOG.zh-CN.md
+
+# Local push / command history / publishing cache
+push.sh
+history.txt
+.clawhub/
+**/.clawhub/
+
+# Local sensitive config
+.env
+.env.*
+*.token
+*.secret
+*.key
+*.pem
+*.p12
+*.pfx
+config.yaml
+config.local.yaml
+*.local.yaml
+
+# Local Python env
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Local ClawVault env
+.clawvault-env/

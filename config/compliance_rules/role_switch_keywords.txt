@@ -1,0 +1,38 @@
+# AegisRouter - 角色切换关键词库
+# 用于特征评分检测，命中过多关键词时判定为 Prompt Injection 攻击
+# 每行一个关键词，# 开头为注释，支持中英文
+# 修改后自动热更新，无需重启服务
+
+# === 英文关键词 ===
+ignore
+forget
+disregard
+override
+bypass
+pretend
+act as
+role play
+you are now
+new instructions
+system prompt
+reveal your
+previous instructions
+do not follow
+jailbreak
+
+# === 中文关键词 ===
+忽略
+忘记
+无视
+覆盖
+绕过
+假装
+扮演
+角色扮演
+你现在是
+新的指令
+系统提示
+输出你的
+之前的指令
+不要遵守
+越狱

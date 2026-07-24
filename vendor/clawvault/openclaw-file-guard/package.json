@@ -1,0 +1,44 @@
+{
+  "name": "openclaw-file-guard",
+  "version": "0.1.0",
+  "description": "OpenClaw plugin that intercepts tool-call file access and reports events to ClawVault",
+  "main": "./dist/index.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "files": [
+    "dist",
+    "openclaw.plugin.json",
+    "README.md"
+  ],
+  "keywords": [
+    "openclaw",
+    "plugin",
+    "clawvault",
+    "security",
+    "file-guard"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.13.6",
+    "picomatch": "^4.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/picomatch": "^4.0.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "vitest": "^2.1.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "plugins": [
+      "openclaw-file-guard"
+    ]
+  }
+}

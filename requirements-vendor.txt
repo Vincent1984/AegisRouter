@@ -1,0 +1,14 @@
+# AegisRouter — Vendor 本地依赖（可编辑模式安装）
+# 使用方式: pip install -r requirements-vendor.txt
+#
+# 这些包以源码形式存放在 vendor/ 目录下，通过 editable install 提供包导入路径。
+# 安装顺序：先安装 vendor 依赖，再安装 requirements.txt，最后安装项目本身。
+#
+# 对应 Dockerfile 中的安装步骤:
+#   RUN pip install --no-cache-dir -e ./vendor/litellm && \
+#       pip install --no-cache-dir -e ./vendor/routellm && \
+#       pip install --no-cache-dir -e ./vendor/clawvault
+
+-e ./vendor/litellm
+-e ./vendor/routellm
+-e ./vendor/clawvault

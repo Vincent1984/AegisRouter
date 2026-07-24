@@ -1,0 +1,24 @@
+{
+  "trivial_prompts": [
+    "你好",
+    "hello",
+    "早上好",
+    "谢谢"
+  ],
+  "simple_prompts": [
+    "翻译: hello → 你好",
+    "帮我写一句问候语"
+  ],
+  "medium_prompts": [
+    "写一篇500字的产品分析报告",
+    "请帮我总结以下内容的要点"
+  ],
+  "complex_prompts": [
+    "审计这段代码的安全漏洞并给出修复方案，包括 SQL 注入、XSS 和 CSRF 的防护建议",
+    "设计一个分布式事务系统，支持 TCC 和 SAGA 模式，给出详细的架构图和代码实现"
+  ],
+  "pii_prompts": [
+    "我的朋友张三的电话是 13800138000，请帮我给他写封邮件",
+    "John Smith's email is john@example.com and his IP is 192.168.1.100"
+  ]
+}

@@ -1,0 +1,91 @@
+# AegisRouter - LiteLLM 模型池配置
+# API Keys 通过环境变量注入，不在此文件中明文存储
+
+model_list:
+  # === 本地模型 (免费) ===
+  - model_name: local-7b
+    litellm_params:
+      model: ollama/qwen2.5-7b
+      api_base: http://172.25.4.7:11434
+
+  # === DeepSeek (性价比) ===
+  - model_name: deepseek-v4-pro
+    litellm_params:
+      model: deepseek/deepseek-v4-pro
+      api_key: os.environ/DEEPSEEK_API_KEY
+      api_base: https://api.deepseek.com
+
+  # === Claude / Anthropic (通过代理，OpenAI 兼容模式) ===
+  - model_name: claude-sonnet
+    litellm_params:
+      model: openai/claude-sonnet-4-6
+      api_key: os.environ/ANTHROPIC_API_KEY
+      api_base: https://pikachu.hueling.cc/v1
+
+  - model_name: claude-sonnet-5
+    litellm_params:
+      model: openai/claude-sonnet-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+      api_base: https://pikachu.hueling.cc/v1
+
+  - model_name: claude-haiku
+    litellm_params:
+      model: openai/claude-haiku-4-5-20251001
+      api_key: os.environ/ANTHROPIC_API_KEY
+      api_base: https://pikachu.hueling.cc/v1
+
+  # === GPT 系列 (通过代理) ===
+  - model_name: gpt-5.2
+    litellm_params:
+      model: openai/gpt-5.2
+      api_key: os.environ/OPENAI_API_KEY
+      api_base: https://pikachu.hueling.cc/v1
+
+  - model_name: gpt-5.4-mini
+    litellm_params:
+      model: openai/gpt-5.4-mini
+      api_key: os.environ/OPENAI_API_KEY
+      api_base: https://pikachu.hueling.cc/v1
+
+  - model_name: gpt-5.5
+    litellm_params:
+      model: openai/gpt-5.5
+      api_key: os.environ/OPENAI_API_KEY
+      api_base: https://pikachu.hueling.cc/v1
+
+  - model_name: gpt-5.6-sol
+    litellm_params:
+      model: openai/gpt-5.6-sol
+      api_key: os.environ/OPENAI_API_KEY
+      api_base: https://pikachu.hueling.cc/v1
+
+  - model_name: codex-mini
+    litellm_params:
+      model: openai/codex-mini-latest
+      api_key: os.environ/OPENAI_API_KEY
+      api_base: https://pikachu.hueling.cc/v1
+
+  # === Gemini (通过代理，OpenAI 兼容模式) ===
+  - model_name: gemini-3.1-pro
+    litellm_params:
+      model: openai/gemini-3.1-pro-preview
+      api_key: os.environ/GEMINI_API_KEY
+      api_base: https://pikachu.hueling.cc/v1
+
+  - model_name: gemini-3.5-flash
+    litellm_params:
+      model: openai/gemini-3.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+      api_base: https://pikachu.hueling.cc/v1
+
+  - model_name: gemini-2.5-flash
+    litellm_params:
+      model: openai/gemini-2.5-flash
+      api_key: os.environ/GEMINI_API_KEY
+      api_base: https://pikachu.hueling.cc/v1
+
+litellm_settings:
+  drop_params: true
+
+general_settings:
+  master_key: os.environ/AEGIS_MASTER_KEY

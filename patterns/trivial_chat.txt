@@ -1,0 +1,22 @@
+# 寒暄词库 — 命中时直接路由到本地小模型
+# 每行一个模式，支持中英文
+你好
+hello
+hi
+hey
+谢谢
+再见
+早上好
+晚上好
+good morning
+good evening
+good night
+thanks
+thank you
+bye
+goodbye
+嗨
+哈喽
+晚安
+早安
+你好呀

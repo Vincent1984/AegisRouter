@@ -1,0 +1,64 @@
+# AegisRouter - 路由配置
+
+routing:
+  # === 规则前置 ===
+  trivial:
+    enabled: true
+    max_length: 30
+    patterns_file: ./patterns/trivial_chat.txt
+    target_model: local-7b
+
+  # === RouteLLM 分类器 ===
+  classifier:
+    type: mf              # mf | bert | sw_ranking
+    model_path: null      # null = 使用默认预训练模型
+
+  # === 打分输入策略 ===
+  score_input: masked     # masked | original
+
+  # === 会话路由策略 ===
+  session_policy: sticky  # sticky | per_turn | escalate_only
+  session_lock_ttl_minutes: 60
+
+  # === 重叠区间选择策略 ===
+  overlap_strategy: lowest_cost  # lowest_cost | highest_capability | round_robin | random
+
+  # === 兜底模型 ===
+  fallback_model: deepseek-v4-pro
+
+  # === 模型能力评分配置 ===
+  scoring:
+    weights:
+      benchmark_mmlu: 0.30
+      benchmark_humaneval: 0.25
+      benchmark_math: 0.25
+      context_window: 0.10
+      cost_efficiency: 0.10
+
+    # 归一化边界
+    normalization:
+      benchmark_mmlu: [50, 95]
+      benchmark_humaneval: [30, 95]
+      benchmark_math: [20, 95]
+      context_window: [4096, 2000000]
+      cost_per_1m_input: [0, 20]
+
+    # 区间容差: computed_score ± tolerance
+    range_tolerance: 0.12
+
+# === Failover 链 ===
+failover:
+  enabled: true
+  timeout_ms: 50
+  chains:
+    gpt-5.6-sol: [gpt-5.5, claude-sonnet, deepseek-v4-pro]
+    gpt-5.5: [gpt-5.2, claude-sonnet, deepseek-v4-pro]
+    gpt-5.2: [claude-sonnet, deepseek-v4-pro, gemini-2.5-pro]
+    claude-sonnet: [gpt-5.2, deepseek-v4-pro, gemini-2.5-pro]
+    deepseek-v4-pro: [gemini-2.5-flash, gpt-5.4-mini, local-7b]
+    gemini-3.1-pro: [gemini-2.5-pro, gpt-5.2, deepseek-v4-pro]
+    gemini-2.5-pro: [gemini-3.1-pro, claude-sonnet, deepseek-v4-pro]
+    gemini-2.5-flash: [deepseek-v4-pro, gpt-5.4-mini, local-7b]
+    gpt-5.4-mini: [gemini-2.5-flash, deepseek-v4-pro, local-7b]
+    codex-mini: [deepseek-v4-pro, gpt-5.4-mini]
+    local-7b: [deepseek-v4-pro]

@@ -1,0 +1,79 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aegis-router"
+version = "0.1.0"
+description = "AegisRouter — 智能安全 LLM 路由网关"
+readme = "README.md"
+license = {text = "Proprietary"}
+requires-python = ">=3.10"
+authors = [
+    {name = "AegisRouter Team"},
+]
+
+dependencies = [
+    "redis>=5.0.0",
+    "spacy>=3.7.0",
+    "presidio-analyzer>=2.2.0",
+    "presidio-anonymizer>=2.2.0",
+    "watchdog>=4.0.0",
+    "pyyaml>=6.0",
+    "uvicorn>=0.27.0",
+    "httpx>=0.25.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.12.0",
+    "ruff>=0.1.0",
+    "mypy>=1.7.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["aegis_router*"]
+
+[tool.setuptools.package-data]
+aegis_router = ["py.typed"]
+
+# Vendor 本地依赖（litellm, routellm, clawvault）:
+# 这些包以源码形式存放在 vendor/ 目录下，不在此处声明（pip 不支持相对路径依赖）。
+# 安装方式: pip install -r requirements-vendor.txt
+# 或逐个安装:
+#   pip install -e ./vendor/litellm
+#   pip install -e ./vendor/routellm
+#   pip install -e ./vendor/clawvault
+#
+# 完整安装顺序（参见 Dockerfile）:
+#   1. pip install -r requirements-vendor.txt   # vendor 本地源码
+#   2. pip install -r requirements.txt          # 第三方依赖
+#   3. pip install -e .                         # 项目本身
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true

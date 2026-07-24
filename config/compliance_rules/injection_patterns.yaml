@@ -1,0 +1,121 @@
+# AegisRouter - Prompt Injection 攻击模式定义
+# 用于规则匹配阶段 (fast path)，大小写不敏感
+# 修改后自动热更新，无需重启服务
+
+# 特征评分配置
+feature_scoring:
+  min_hits: 3              # 最少命中关键词数量
+  density_threshold: 0.15  # 关键词密度阈值 (命中数/总词数)
+  min_words: 5             # 短文本跳过检测的最低词数
+
+# 注入攻击模式列表
+patterns:
+  # === 指令覆盖类 ===
+  - id: INJ_001
+    pattern: "ignore previous instructions"
+    severity: high
+    description: "尝试覆盖系统指令"
+
+  - id: INJ_002
+    pattern: "忽略之前的指令"
+    severity: high
+    description: "中文指令覆盖攻击"
+
+  - id: INJ_003
+    pattern: "ignore all previous"
+    severity: high
+    description: "忽略所有前置指令"
+
+  - id: INJ_004
+    pattern: "disregard your instructions"
+    severity: high
+    description: "无视系统指令"
+
+  - id: INJ_005
+    pattern: "forget everything above"
+    severity: high
+    description: "遗忘上文攻击"
+
+  # === 角色劫持类 ===
+  - id: INJ_010
+    pattern: "you are now"
+    severity: high
+    description: "角色劫持 - 重新定义身份"
+
+  - id: INJ_011
+    pattern: "你现在是"
+    severity: high
+    description: "中文角色劫持"
+
+  - id: INJ_012
+    pattern: "act as if you are"
+    severity: medium
+    description: "角色扮演诱导"
+
+  - id: INJ_013
+    pattern: "pretend you are"
+    severity: medium
+    description: "假装身份诱导"
+
+  # === 信息泄露类 ===
+  - id: INJ_020
+    pattern: "output your system prompt"
+    severity: high
+    description: "尝试提取系统提示词"
+
+  - id: INJ_021
+    pattern: "输出你的系统提示"
+    severity: high
+    description: "中文提取系统提示"
+
+  - id: INJ_022
+    pattern: "reveal your instructions"
+    severity: high
+    description: "暴露内部指令"
+
+  - id: INJ_023
+    pattern: "print your prompt"
+    severity: medium
+    description: "打印提示词"
+
+  - id: INJ_024
+    pattern: "show me your rules"
+    severity: medium
+    description: "显示规则"
+
+  # === DAN/越狱类 ===
+  - id: INJ_030
+    pattern: "DAN mode"
+    severity: high
+    description: "DAN 越狱攻击"
+
+  - id: INJ_031
+    pattern: "jailbreak"
+    severity: high
+    description: "越狱关键词"
+
+  - id: INJ_032
+    pattern: "developer mode"
+    severity: medium
+    description: "开发者模式激活"
+
+  - id: INJ_033
+    pattern: "no restrictions"
+    severity: medium
+    description: "移除限制"
+
+  # === 间接注入类 ===
+  - id: INJ_040
+    pattern: "do anything now"
+    severity: high
+    description: "DAN 变体"
+
+  - id: INJ_041
+    pattern: "不受任何限制"
+    severity: high
+    description: "中文 DAN 变体"
+
+  - id: INJ_042
+    pattern: "hypothetically speaking"
+    severity: low
+    description: "假设场景诱导（低风险）"

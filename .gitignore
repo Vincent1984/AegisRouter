@@ -1,0 +1,31 @@
+# 环境变量 & 密钥
+.env
+k8s/secret.yaml
+docker-compose.yaml
+tests/test_model_connectivity.py
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Vendor 中触发 GitHub Secret Scanning 的文件（含测试用假密钥）
+vendor/litellm/docs/my-website/docs/proxy/prod.md
+vendor/litellm/tests/test_callbacks_on_proxy.py
+vendor/clawvault/src/claw_vault/dashboard/api.py
+vendor/litellm/litellm/proxy/_types.py
+vendor/litellm/litellm/llms/huggingface_llms_metadata/hf_text_generation_models.txt

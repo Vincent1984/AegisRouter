@@ -1,0 +1,13 @@
+# AegisRouter - 人工覆盖的模型路由区间
+# 优先级高于系统自动计算，修改后热更新生效
+
+overrides:
+  # 示例: 限制本地模型只处理最简单的任务
+  # local-7b:
+  #   score_range: [0.0, 0.30]
+  #   reason: "限制本地模型只处理极简任务"
+
+  # 示例: DeepSeek 性价比极高，扩大其接管范围
+  # deepseek-v4-pro:
+  #   score_range: [0.30, 0.85]
+  #   reason: "实测 DeepSeek V4 Pro 中文场景表现优异，可覆盖更大范围"

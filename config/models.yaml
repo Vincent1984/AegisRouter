@@ -1,0 +1,173 @@
+# AegisRouter - 模型参数声明 (用于能力评分与路由区间计算)
+# 系统根据以下参数自动计算 computed_score 和 score_range
+
+models:
+  # === 本地模型 ===
+  - name: local-7b
+    litellm_model: ollama/qwen2.5-7b
+    provider: local
+    params:
+      parameter_size_b: 7
+      context_window: 32000
+      benchmark_mmlu: 65.0
+      benchmark_humaneval: 45.0
+      benchmark_math: 40.0
+      cost_per_1m_input: 0.0
+      cost_per_1m_output: 0.0
+      latency_avg_ms: 200
+      supports_streaming: true
+      supports_function_call: false
+
+  # === DeepSeek ===
+  - name: deepseek-v4-pro
+    litellm_model: deepseek/deepseek-v4-pro
+    provider: deepseek
+    params:
+      parameter_size_b: 671
+      context_window: 128000
+      benchmark_mmlu: 90.2
+      benchmark_humaneval: 88.5
+      benchmark_math: 82.0
+      cost_per_1m_input: 0.27
+      cost_per_1m_output: 1.10
+      latency_avg_ms: 800
+      supports_streaming: true
+      supports_function_call: true
+
+  # === Claude (Anthropic) ===
+  - name: claude-sonnet
+    litellm_model: anthropic/claude-sonnet-4-20250514
+    provider: anthropic
+    params:
+      parameter_size_b: null
+      context_window: 200000
+      benchmark_mmlu: 89.5
+      benchmark_humaneval: 92.0
+      benchmark_math: 80.5
+      cost_per_1m_input: 3.00
+      cost_per_1m_output: 15.00
+      latency_avg_ms: 700
+      supports_streaming: true
+      supports_function_call: true
+
+  # === GPT 系列 ===
+  - name: gpt-5.2
+    litellm_model: openai/gpt-5.2
+    provider: openai
+    params:
+      parameter_size_b: null
+      context_window: 400000
+      benchmark_mmlu: 90.0
+      benchmark_humaneval: 91.5
+      benchmark_math: 83.0
+      cost_per_1m_input: 2.50
+      cost_per_1m_output: 10.00
+      latency_avg_ms: 600
+      supports_streaming: true
+      supports_function_call: true
+
+  - name: gpt-5.4-mini
+    litellm_model: openai/gpt-5.4-mini
+    provider: openai
+    params:
+      parameter_size_b: null
+      context_window: 400000
+      benchmark_mmlu: 87.0
+      benchmark_humaneval: 85.0
+      benchmark_math: 78.0
+      cost_per_1m_input: 0.80
+      cost_per_1m_output: 3.20
+      latency_avg_ms: 400
+      supports_streaming: true
+      supports_function_call: true
+
+  - name: gpt-5.5
+    litellm_model: openai/gpt-5.5
+    provider: openai
+    params:
+      parameter_size_b: null
+      context_window: 1050000
+      benchmark_mmlu: 92.0
+      benchmark_humaneval: 93.5
+      benchmark_math: 88.0
+      cost_per_1m_input: 5.00
+      cost_per_1m_output: 20.00
+      latency_avg_ms: 800
+      supports_streaming: true
+      supports_function_call: true
+
+  - name: gpt-5.6-sol
+    litellm_model: openai/gpt-5.6-sol
+    provider: openai
+    params:
+      parameter_size_b: null
+      context_window: 1050000
+      benchmark_mmlu: 94.5
+      benchmark_humaneval: 96.0
+      benchmark_math: 95.0
+      cost_per_1m_input: 15.00
+      cost_per_1m_output: 60.00
+      latency_avg_ms: 3000
+      supports_streaming: true
+      supports_function_call: true
+
+  - name: codex-mini
+    litellm_model: openai/codex-mini-latest
+    provider: openai
+    params:
+      parameter_size_b: null
+      context_window: 200000
+      benchmark_mmlu: 75.0
+      benchmark_humaneval: 92.0
+      benchmark_math: 70.0
+      cost_per_1m_input: 0.50
+      cost_per_1m_output: 2.00
+      latency_avg_ms: 300
+      supports_streaming: true
+      supports_function_call: true
+
+  # === Gemini ===
+  - name: gemini-2.5-flash
+    litellm_model: gemini/gemini-2.5-flash
+    provider: google
+    params:
+      parameter_size_b: null
+      context_window: 1048576
+      benchmark_mmlu: 86.0
+      benchmark_humaneval: 78.0
+      benchmark_math: 75.0
+      cost_per_1m_input: 0.15
+      cost_per_1m_output: 0.60
+      latency_avg_ms: 300
+      supports_streaming: true
+      supports_function_call: true
+
+  - name: gemini-2.5-pro
+    litellm_model: gemini/gemini-2.5-pro
+    provider: google
+    params:
+      parameter_size_b: null
+      context_window: 2097152
+      benchmark_mmlu: 89.0
+      benchmark_humaneval: 84.0
+      benchmark_math: 80.0
+      cost_per_1m_input: 1.25
+      cost_per_1m_output: 5.00
+      latency_avg_ms: 800
+      supports_streaming: true
+      supports_function_call: true
+
+  - name: gemini-3.1-pro
+    litellm_model: gemini/gemini-3.1-pro-preview
+    provider: google
+    params:
+      parameter_size_b: null
+      context_window: 1048576
+      benchmark_mmlu: 91.5
+      benchmark_humaneval: 89.0
+      benchmark_math: 85.0
+      cost_per_1m_input: 2.00
+      cost_per_1m_output: 8.00
+      latency_avg_ms: 900
+      supports_streaming: true
+      supports_function_call: true

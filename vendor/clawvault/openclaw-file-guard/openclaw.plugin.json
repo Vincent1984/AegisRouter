@@ -1,0 +1,53 @@
+{
+  "id": "openclaw-file-guard",
+  "main": "./dist/index.js",
+  "name": "openclaw-file-guard",
+  "description": "Intercept tool-call file access and report events to ClawVault dashboard",
+  "version": "0.1.0",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "properties": {
+      "clawvaultUrl": {
+        "type": "string",
+        "description": "ClawVault dashboard base URL (e.g. http://127.0.0.1:8766)",
+        "default": "http://127.0.0.1:8766"
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["log", "strict"],
+        "description": "log = report only; strict = block offending tool calls",
+        "default": "log"
+      },
+      "localSanitize": {
+        "type": "boolean",
+        "description": "Handle @clawvault sanitize intents locally before model submission",
+        "default": true
+      },
+      "extraPaths": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Additional glob patterns to treat as sensitive (appended to watch_paths/watch_patterns fetched from ClawVault)",
+        "default": []
+      },
+      "extraExtensions": {
+        "type": "array",
+        "items": { "type": "string" },
+        "description": "Additional filename extensions (e.g. .pem) that always count as sensitive",
+        "default": [".pem", ".key", ".p12", ".pfx", ".kdbx"]
+      },
+      "refreshIntervalSeconds": {
+        "type": "number",
+        "description": "How often to re-pull ClawVault config",
+        "default": 30
+      },
+      "requestTimeoutMs": {
+        "type": "number",
+        "description": "HTTP timeout when calling ClawVault",
+        "default": 2000
+      }
+    }
+  }
+}

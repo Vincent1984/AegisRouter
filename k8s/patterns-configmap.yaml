@@ -1,0 +1,27 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegis-router-patterns
+  namespace: aegis-router
+data:
+  trivial_chat.txt: |
+    你好
+    hello
+    hi
+    hey
+    谢谢
+    再见
+    早上好
+    晚上好
+    good morning
+    good evening
+    good night
+    thanks
+    thank you
+    bye
+    嗨
+    哈喽
+    OK
+    好的
+    没事了
+    晚安

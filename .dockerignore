@@ -1,0 +1,71 @@
+# =============================================================================
+# AegisRouter .dockerignore
+# 排除不需要的文件，减小 Docker 构建上下文大小
+# =============================================================================
+
+# Git
+.git
+.gitignore
+
+# Python 缓存和构建产物
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+ENV/
+
+# IDE / 编辑器
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# 测试相关
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# 文档
+docs/
+*.md
+!README.md
+
+# Kiro specs
+.kiro/
+
+# 环境变量文件（敏感信息）
+.env
+.env.*
+!.env.example
+
+# Kubernetes 配置（不在镜像中）
+k8s/
+
+# OS 文件
+.DS_Store
+Thumbs.db
+
+# Docker 自身
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# 但保留 docker/stubs（构建需要）
+!docker/
+!docker/stubs/
+
+# 其他开发文件
+setup.py
+requirements-vendor.txt

@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: aegis-router-pdb
+  namespace: aegis-router
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: aegis-router

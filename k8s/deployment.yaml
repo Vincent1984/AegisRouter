@@ -1,0 +1,80 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aegis-router
+  namespace: aegis-router
+  labels:
+    app: aegis-router
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: aegis-router
+  template:
+    metadata:
+      labels:
+        app: aegis-router
+    spec:
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: aegis-router
+          image: aegis-router:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 5
+          envFrom:
+            - secretRef:
+                name: aegis-router-secrets
+          env:
+            - name: REDIS_URL
+              value: "redis://redis-service:6379/0"
+            - name: SERVICE_PORT
+              value: "8000"
+            - name: LOG_LEVEL
+              value: "INFO"
+            - name: ENVIRONMENT
+              value: "production"
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: patterns
+              mountPath: /app/patterns
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: aegis-router-config
+        - name: patterns
+          configMap:
+            name: aegis-router-patterns

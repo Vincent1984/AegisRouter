@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegis-router
+  namespace: aegis-router
+  labels:
+    app: aegis-router
+spec:
+  type: ClusterIP
+  selector:
+    app: aegis-router
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+      protocol: TCP
+---
+# 外部访问入口 (可选, 也可用 Ingress 替代)
+apiVersion: v1
+kind: Service
+metadata:
+  name: aegis-router-lb
+  namespace: aegis-router
+  labels:
+    app: aegis-router
+spec:
+  type: LoadBalancer
+  selector:
+    app: aegis-router
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8000
+      protocol: TCP

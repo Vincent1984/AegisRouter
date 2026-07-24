@@ -1,0 +1,298 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegis-router-config
+  namespace: aegis-router
+data:
+  config.yaml: |
+    model_list:
+      # === 本地模型 (免费) ===
+      - model_name: local-7b
+        litellm_params:
+          model: ollama/qwen2.5-7b
+          api_base: http://ollama-service:11434
+
+      # === DeepSeek ===
+      - model_name: deepseek-v4-pro
+        litellm_params:
+          model: deepseek/deepseek-v4-pro
+          api_key: os.environ/DEEPSEEK_API_KEY
+          api_base: https://api.deepseek.com
+
+      # === Claude / Anthropic ===
+      - model_name: claude-sonnet
+        litellm_params:
+          model: anthropic/claude-sonnet-4-20250514
+          api_key: os.environ/ANTHROPIC_API_KEY
+          api_base: https://pikachu.hueling.cc/v1
+
+      # === GPT 系列 ===
+      - model_name: gpt-5.2
+        litellm_params:
+          model: openai/gpt-5.2
+          api_key: os.environ/OPENAI_API_KEY
+          api_base: https://pikachu.hueling.cc/v1
+
+      - model_name: gpt-5.4-mini
+        litellm_params:
+          model: openai/gpt-5.4-mini
+          api_key: os.environ/OPENAI_API_KEY
+          api_base: https://pikachu.hueling.cc/v1
+
+      - model_name: gpt-5.5
+        litellm_params:
+          model: openai/gpt-5.5
+          api_key: os.environ/OPENAI_API_KEY
+          api_base: https://pikachu.hueling.cc/v1
+
+      - model_name: gpt-5.6-sol
+        litellm_params:
+          model: openai/gpt-5.6-sol
+          api_key: os.environ/OPENAI_API_KEY
+          api_base: https://pikachu.hueling.cc/v1
+
+      - model_name: codex-mini
+        litellm_params:
+          model: openai/codex-mini-latest
+          api_key: os.environ/OPENAI_API_KEY
+          api_base: https://pikachu.hueling.cc/v1
+
+      # === Gemini ===
+      - model_name: gemini-2.5-flash
+        litellm_params:
+          model: gemini/gemini-2.5-flash
+          api_key: os.environ/GEMINI_API_KEY
+          api_base: https://pikachu.hueling.cc/v1beta
+
+      - model_name: gemini-2.5-pro
+        litellm_params:
+          model: gemini/gemini-2.5-pro
+          api_key: os.environ/GEMINI_API_KEY
+          api_base: https://pikachu.hueling.cc/v1beta
+
+      - model_name: gemini-3.1-pro
+        litellm_params:
+          model: gemini/gemini-3.1-pro-preview
+          api_key: os.environ/GEMINI_API_KEY
+          api_base: https://pikachu.hueling.cc/v1beta
+
+    litellm_settings:
+      callbacks: aegis_router.callbacks.smart_router_instance
+
+    general_settings:
+      master_key: os.environ/AEGIS_MASTER_KEY
+
+  models.yaml: |
+    models:
+      - name: local-7b
+        litellm_model: ollama/qwen2.5-7b
+        provider: local
+        params:
+          parameter_size_b: 7
+          context_window: 32000
+          benchmark_mmlu: 65.0
+          benchmark_humaneval: 45.0
+          benchmark_math: 40.0
+          cost_per_1m_input: 0.0
+          cost_per_1m_output: 0.0
+          latency_avg_ms: 200
+          supports_streaming: true
+          supports_function_call: false
+
+      - name: deepseek-v4-pro
+        litellm_model: deepseek/deepseek-v4-pro
+        provider: deepseek
+        params:
+          parameter_size_b: 671
+          context_window: 128000
+          benchmark_mmlu: 90.2
+          benchmark_humaneval: 88.5
+          benchmark_math: 82.0
+          cost_per_1m_input: 0.27
+          cost_per_1m_output: 1.10
+          latency_avg_ms: 800
+          supports_streaming: true
+          supports_function_call: true
+
+      - name: claude-sonnet
+        litellm_model: anthropic/claude-sonnet-4-20250514
+        provider: anthropic
+        params:
+          parameter_size_b: null
+          context_window: 200000
+          benchmark_mmlu: 89.5
+          benchmark_humaneval: 92.0
+          benchmark_math: 80.5
+          cost_per_1m_input: 3.00
+          cost_per_1m_output: 15.00
+          latency_avg_ms: 700
+          supports_streaming: true
+          supports_function_call: true
+
+      - name: gpt-5.2
+        litellm_model: openai/gpt-5.2
+        provider: openai
+        params:
+          parameter_size_b: null
+          context_window: 400000
+          benchmark_mmlu: 90.0
+          benchmark_humaneval: 91.5
+          benchmark_math: 83.0
+          cost_per_1m_input: 2.50
+          cost_per_1m_output: 10.00
+          latency_avg_ms: 600
+          supports_streaming: true
+          supports_function_call: true
+
+      - name: gpt-5.4-mini
+        litellm_model: openai/gpt-5.4-mini
+        provider: openai
+        params:
+          parameter_size_b: null
+          context_window: 400000
+          benchmark_mmlu: 87.0
+          benchmark_humaneval: 85.0
+          benchmark_math: 78.0
+          cost_per_1m_input: 0.80
+          cost_per_1m_output: 3.20
+          latency_avg_ms: 400
+          supports_streaming: true
+          supports_function_call: true
+
+      - name: gpt-5.5
+        litellm_model: openai/gpt-5.5
+        provider: openai
+        params:
+          parameter_size_b: null
+          context_window: 1050000
+          benchmark_mmlu: 92.0
+          benchmark_humaneval: 93.5
+          benchmark_math: 88.0
+          cost_per_1m_input: 5.00
+          cost_per_1m_output: 20.00
+          latency_avg_ms: 800
+          supports_streaming: true
+          supports_function_call: true
+
+      - name: gpt-5.6-sol
+        litellm_model: openai/gpt-5.6-sol
+        provider: openai
+        params:
+          parameter_size_b: null
+          context_window: 1050000
+          benchmark_mmlu: 94.5
+          benchmark_humaneval: 96.0
+          benchmark_math: 95.0
+          cost_per_1m_input: 15.00
+          cost_per_1m_output: 60.00
+          latency_avg_ms: 3000
+          supports_streaming: true
+          supports_function_call: true
+
+      - name: codex-mini
+        litellm_model: openai/codex-mini-latest
+        provider: openai
+        params:
+          parameter_size_b: null
+          context_window: 200000
+          benchmark_mmlu: 75.0
+          benchmark_humaneval: 92.0
+          benchmark_math: 70.0
+          cost_per_1m_input: 0.50
+          cost_per_1m_output: 2.00
+          latency_avg_ms: 300
+          supports_streaming: true
+          supports_function_call: true
+
+      - name: gemini-2.5-flash
+        litellm_model: gemini/gemini-2.5-flash
+        provider: google
+        params:
+          parameter_size_b: null
+          context_window: 1048576
+          benchmark_mmlu: 86.0
+          benchmark_humaneval: 78.0
+          benchmark_math: 75.0
+          cost_per_1m_input: 0.15
+          cost_per_1m_output: 0.60
+          latency_avg_ms: 300
+          supports_streaming: true
+          supports_function_call: true
+
+      - name: gemini-2.5-pro
+        litellm_model: gemini/gemini-2.5-pro
+        provider: google
+        params:
+          parameter_size_b: null
+          context_window: 2097152
+          benchmark_mmlu: 89.0
+          benchmark_humaneval: 84.0
+          benchmark_math: 80.0
+          cost_per_1m_input: 1.25
+          cost_per_1m_output: 5.00
+          latency_avg_ms: 800
+          supports_streaming: true
+          supports_function_call: true
+
+      - name: gemini-3.1-pro
+        litellm_model: gemini/gemini-3.1-pro-preview
+        provider: google
+        params:
+          parameter_size_b: null
+          context_window: 1048576
+          benchmark_mmlu: 91.5
+          benchmark_humaneval: 89.0
+          benchmark_math: 85.0
+          cost_per_1m_input: 2.00
+          cost_per_1m_output: 8.00
+          latency_avg_ms: 900
+          supports_streaming: true
+          supports_function_call: true
+
+  route_config.yaml: |
+    routing:
+      trivial:
+        enabled: true
+        max_length: 30
+        patterns_file: /app/patterns/trivial_chat.txt
+        target_model: local-7b
+      classifier:
+        type: mf
+        model_path: null
+      score_input: masked
+      session_policy: sticky
+      session_lock_ttl_minutes: 60
+      overlap_strategy: lowest_cost
+      fallback_model: deepseek-v4-pro
+      scoring:
+        weights:
+          benchmark_mmlu: 0.30
+          benchmark_humaneval: 0.25
+          benchmark_math: 0.25
+          context_window: 0.10
+          cost_efficiency: 0.10
+        normalization:
+          benchmark_mmlu: [50, 95]
+          benchmark_humaneval: [30, 95]
+          benchmark_math: [20, 95]
+          context_window: [4096, 2000000]
+          cost_per_1m_input: [0, 20]
+        range_tolerance: 0.12
+    failover:
+      enabled: true
+      timeout_ms: 50
+      chains:
+        gpt-5.6-sol: [gpt-5.5, claude-sonnet, deepseek-v4-pro]
+        gpt-5.5: [gpt-5.2, claude-sonnet, deepseek-v4-pro]
+        gpt-5.2: [claude-sonnet, deepseek-v4-pro, gemini-2.5-pro]
+        claude-sonnet: [gpt-5.2, deepseek-v4-pro, gemini-2.5-pro]
+        deepseek-v4-pro: [gemini-2.5-flash, gpt-5.4-mini, local-7b]
+        gemini-3.1-pro: [gemini-2.5-pro, gpt-5.2, deepseek-v4-pro]
+        gemini-2.5-pro: [gemini-3.1-pro, claude-sonnet, deepseek-v4-pro]
+        gemini-2.5-flash: [deepseek-v4-pro, gpt-5.4-mini, local-7b]
+        gpt-5.4-mini: [gemini-2.5-flash, deepseek-v4-pro, local-7b]
+        codex-mini: [deepseek-v4-pro, gpt-5.4-mini]
+        local-7b: [deepseek-v4-pro]
+
+  route_overrides.yaml: |
+    overrides: {}
