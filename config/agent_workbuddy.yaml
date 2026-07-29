@@ -1,0 +1,47 @@
+# =============================================================================
+# AegisRouter Agent-WorkBuddy 路由 — Agent 模型分配配置文件
+# =============================================================================
+#
+# 本文件定义 WorkBuddy 客户端使用的 Agent 列表及其能力 Profile。
+# 系统启动时为每个 Agent 预计算最优模型分配，之后请求直接查表分发。
+#
+# 与 transaction_templates.yaml 的区别：
+#   - 无 template 层级，agent 是唯一的路由维度
+#   - agent 名称全局唯一（不按模板分组）
+#   - 查表 key: agent_name → model_name（单维度）
+#
+# === 字段说明 ===
+#
+# agents:                   顶层字段，包含所有 Agent 定义
+#   - name:                 Agent 唯一标识（全局唯一，用作查表 key）
+#     capability_profile:   能力 Profile 名称（必填）
+#     override_model:       模型覆盖（可选，跳过自动评分直接指定模型）
+#     description:          Agent 描述（可选，仅文档用）
+#
+# =============================================================================
+
+agents:
+  - name: intent_classifier
+    capability_profile: lightweight
+    description: "意图分类 Agent — 负责识别用户输入意图"
+
+  - name: document_parser
+    capability_profile: long_context
+    description: "文档解析 Agent — 处理长文本文档"
+
+  - name: reasoning_engine
+    capability_profile: strong_reasoning
+    description: "推理引擎 Agent — 复杂逻辑分析"
+
+  - name: code_assistant
+    capability_profile: code_specialist
+    description: "代码助手 Agent — 代码生成与审查"
+
+  - name: general_assistant
+    capability_profile: medium
+    description: "通用助手 Agent — 一般性对话"
+
+  - name: heavy_analyst
+    capability_profile: heavy
+    description: "重度分析 Agent — 最复杂的推理任务"
+    override_model: gpt-5.6-sol            # 可选：跳过评分，强制使用指定模型
