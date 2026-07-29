@@ -496,29 +496,91 @@ routing_plugin: agent_workbuddy
 
 ## Correctness Properties
 
-### Property 1: 确定性
-相同配置永远生成相同方案。给定相同的 `agent_workbuddy.yaml`、`models.yaml`、`capability_profiles.yaml`，`AgentPlanGenerator.generate_all()` 的输出必须完全一致。
+*A property is a characteristic or behavior that should hold true across all valid executions of a system—essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
-### Property 2: 一致性
-同一 agent 的并发请求路由到相同模型。在方案表未被替换的时间段内，对同一 agent 名称的查表结果不变。
+### Property 1: Agent 标识提取正确性
 
-### Property 3: 原子更新
-配置变更时方案整体替换，无半成品。新旧 `AgentPlanStore` 通过引用替换切换，不存在部分更新的中间状态。
+*For any* messages array containing one or more `role: "user"` messages with `agent` fields, the extracted agent identifier SHALL always equal the `agent` field of the last `role: "user"` message in the array.
 
-### Property 4: 覆盖优先级
-override_model > Profile 自动选择 > fallback。当 agent 定义了 override_model 时，无论 Profile 评分结果如何，始终使用指定模型。
+**Validates: Requirements 1.1, 1.2**
 
-### Property 5: Failover 隔离
-仅影响当次请求，全局方案不变。LLM 调用失败触发 failover 时，不修改 `AgentPlanStore` 中的映射关系。
+### Property 2: Metadata 备选提取
 
-### Property 6: 插件互斥
-同一时刻只有一个路由插件工作。`routing_plugin: agent_workbuddy` 时，conversation 和 transaction 插件不参与路由。
+*For any* request where no `role: "user"` message contains an `agent` field but `metadata.agent` is present, the extracted agent identifier SHALL equal the value of `metadata.agent`.
 
-### Property 7: Agent 全局唯一
-方案表中 agent 名称不重复。若 `agent_workbuddy.yaml` 中存在重复 agent 名称，后定义的覆盖前面的，并记录 DUPLICATE_AGENT 警告。
+**Validates: Requirements 1.3**
 
-### Property 8: 向后兼容
-不影响 conversation 和 transaction 插件的正常工作。切换回其他插件后，所有原有功能完全恢复。
+### Property 3: Agent 名称验证
+
+*For any* string, if the string matches the pattern `[a-zA-Z0-9_-]+` it SHALL be accepted as a valid agent identifier; if it contains any character outside that set, it SHALL be rejected and the request SHALL route to the fallback model.
+
+**Validates: Requirements 1.5, 1.6**
+
+### Property 4: Override 优先级
+
+*For any* agent definition with an `override_model` field set, the AgentPlanGenerator SHALL assign exactly that model regardless of the CapabilityProfileManager scoring result.
+
+**Validates: Requirements 2.2**
+
+### Property 5: 评分选择一致性
+
+*For any* agent definition without `override_model`, the assigned model in the AgentPlanStore SHALL equal the model returned by `CapabilityProfileManager.select_best_model()` for that agent's capability_profile.
+
+**Validates: Requirements 2.3**
+
+### Property 6: 重复 Agent 最后定义胜出
+
+*For any* agent list containing duplicate agent names, the AgentPlanStore SHALL contain only the assignment corresponding to the last definition of each duplicated name, and the store SHALL have exactly as many entries as there are unique agent names.
+
+**Validates: Requirements 2.6, 7.4**
+
+### Property 7: 确定性
+
+*For any* valid set of configuration inputs (`agent_workbuddy.yaml`, `models.yaml`, `capability_profiles.yaml`), invoking `AgentPlanGenerator.generate_all()` multiple times SHALL produce identical AgentPlanStore contents.
+
+**Validates: Requirements 7.2**
+
+### Property 8: 一致性与原子更新
+
+*For any* AgentPlanStore instance that has not been replaced, all concurrent lookups for the same agent name SHALL return the same model. During replacement, no request SHALL observe a partially-updated plan (all mappings are either fully old or fully new).
+
+**Validates: Requirements 7.3, 4.2**
+
+### Property 9: 已知 Agent 正确路由
+
+*For any* request with a valid agent identifier that exists in the AgentPlanStore, the Agent_WorkBuddy_Plugin SHALL set `data["model"]` to exactly the value stored in the plan store for that agent.
+
+**Validates: Requirements 3.1**
+
+### Property 10: 未知/缺失 Agent 兜底路由
+
+*For any* request where the agent identifier is missing, invalid, or not present in the AgentPlanStore, the Agent_WorkBuddy_Plugin SHALL route to the configured fallback model.
+
+**Validates: Requirements 1.4, 3.2**
+
+### Property 11: Failover 隔离
+
+*For any* failover event triggered by an LLM call failure, the AgentPlanStore SHALL remain unchanged after the failover completes—the stored agent → model mapping is identical before and after.
+
+**Validates: Requirements 5.1, 5.2**
+
+### Property 12: Failover 链遍历
+
+*For any* request where the primary model fails and a failover chain is configured, the Agent_WorkBuddy_Plugin SHALL attempt models in the chain in order until one succeeds or all are exhausted.
+
+**Validates: Requirements 5.1**
+
+### Property 13: Failover 禁用
+
+*While* failover is disabled in configuration, *for any* request where the primary model fails, the Agent_WorkBuddy_Plugin SHALL not attempt alternative models.
+
+**Validates: Requirements 5.3**
+
+### Property 14: 插件互斥
+
+*While* `routing_plugin` is set to `agent_workbuddy`, the active plugin type SHALL be `agent_workbuddy` and no other routing plugin (conversation, transaction) SHALL participate in routing decisions.
+
+**Validates: Requirements 6.2**
 
 ---
 

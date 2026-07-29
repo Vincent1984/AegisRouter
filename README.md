@@ -20,6 +20,7 @@
 - [API 使用示例](#api-使用示例)
 - [智能路由详解](#智能路由详解)
 - [事务级路由详解](#事务级路由详解)
+- [Agent-WorkBuddy 路由详解](#agent-workbuddy-路由详解)
 - [PII 脱敏详解](#pii-脱敏详解)
 - [安全合规](#安全合规)
 - [灾备容错](#灾备容错)
@@ -617,6 +618,7 @@ routing_plugin: transaction
 |---|---------|------|
 | `conversation` (默认) | 对话级路由 | 每次请求实时打分，~10ms |
 | `transaction` | 事务级路由 | 预计算查表，< 0.1ms |
+| `agent_workbuddy` | WorkBuddy 路由 | 单维度预计算查表，< 0.1ms |
 
 ### 核心概念
 
@@ -1053,6 +1055,332 @@ docker exec aegis-router supervisorctl restart litellm
 ```
 
 重启后，该模型不再被分配。恢复时改为 `available: true`（或删除该行）再重启。
+
+---
+
+## Agent-WorkBuddy 路由详解
+
+### 概述
+
+Agent-WorkBuddy 是 AegisRouter 的第三种路由策略，专为 WorkBuddy 客户端设计。与事务级路由（Transaction Router）类似，它也面向多 Agent 协作场景，但 WorkBuddy 客户端**无法**在请求 metadata 中发送 `template` 字段，因此路由维度从二维 `(template, agent)` 简化为**单维度** `agent`。
+
+**核心特点**：
+- 路由 key：`agent_name → model_name`（单维度查表）
+- Agent 标识从 `role: "user"` 消息体的 `agent` 字段提取（非 metadata）
+- 启动时预计算方案表，运行时纯内存 HashMap 查表，延迟 < 0.1ms
+- 不关心业务流程/模板编排，只看当前请求是哪个 Agent 发出的
+- Agent 代码无任何修改
+
+### 启用方式
+
+在 `config/config.yaml` 中设置 `routing_plugin` 字段：
+
+```yaml
+# config/config.yaml
+routing_plugin: agent_workbuddy
+```
+
+**三种路由插件对比**：
+
+| 维度 | conversation（对话级） | transaction（事务级） | agent_workbuddy（WorkBuddy级） |
+|------|----------------------|----------------------|-------------------------------|
+| 路由粒度 | 单次请求实时打分 | template × agent | agent |
+| 路由 key | 无预计算 key | `(template, agent)` | `agent` |
+| 决策时机 | 每次请求实时 | 启动时预计算 | 启动时预计算 |
+| 上下文来源 | 消息内容分析 | metadata.transaction | message.agent 字段 |
+| 分发延迟 | ~10ms | < 0.1ms | < 0.1ms |
+| 适用场景 | 独立对话 | 多 Agent 协作流程 | WorkBuddy 客户端多 Agent 协作 |
+
+> **选择建议**：WorkBuddy 客户端无法传递 template 信息，且 Agent 全局唯一不按模板分组时，选择 `agent_workbuddy`。
+
+### 配置文件
+
+Agent-WorkBuddy 路由涉及以下配置文件：
+
+| 文件 | 用途 | 是否必须 |
+|------|------|---------|
+| `config/config.yaml` | 添加 `routing_plugin: agent_workbuddy` | 是 |
+| `config/agent_workbuddy.yaml` | 定义 Agent 列表及能力 Profile | 否（无配置时走 fallback） |
+| `config/capability_profiles.yaml` | Profile 定义（评分权重、约束） | 否（有内置默认值） |
+| `config/models.yaml` | 模型能力参数（评分依据） | 是 |
+
+#### config/agent_workbuddy.yaml
+
+```yaml
+# =============================================================================
+# AegisRouter Agent-WorkBuddy 路由 — Agent 模型分配配置文件
+# =============================================================================
+#
+# 本文件定义 WorkBuddy 客户端使用的 Agent 列表及其能力 Profile。
+# 系统启动时为每个 Agent 预计算最优模型分配，之后请求直接查表分发。
+#
+# 与 transaction_templates.yaml 的区别：
+#   - 无 template 层级，agent 是唯一的路由维度
+#   - agent 名称全局唯一（不按模板分组）
+#   - 查表 key: agent_name → model_name（单维度）
+
+agents:
+  - name: intent_classifier
+    capability_profile: lightweight
+    description: "意图分类 Agent"
+
+  - name: document_parser
+    capability_profile: long_context
+    description: "文档解析 Agent"
+
+  - name: reasoning_engine
+    capability_profile: strong_reasoning
+    description: "推理引擎 Agent"
+
+  - name: code_assistant
+    capability_profile: code_specialist
+    description: "代码助手 Agent"
+
+  - name: general_assistant
+    capability_profile: medium
+    description: "通用助手 Agent"
+
+  - name: heavy_analyst
+    capability_profile: heavy
+    description: "重度分析 Agent"
+    override_model: gpt-5.6-sol    # 可选：跳过评分，强制使用指定模型
+```
+
+**字段说明**：
+
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `name` | 是 | Agent 唯一标识，用作查表 key，仅允许 `[a-zA-Z0-9_-]` |
+| `capability_profile` | 是 | 能力 Profile 名称（引用 capability_profiles.yaml 中的定义） |
+| `override_model` | 否 | 管理员直接指定模型，跳过自动评分 |
+| `description` | 否 | Agent 描述（仅文档用途） |
+
+### WorkBuddy 客户端请求格式
+
+WorkBuddy 客户端在 `role: "user"` 的消息中通过 `agent` 字段标识当前发起请求的 Agent：
+
+```json
+{
+  "model": "any",
+  "messages": [
+    {"role": "system", "content": "你是一个意图分类助手"},
+    {
+      "role": "user",
+      "content": "请分类这段文本的意图...",
+      "agent": "intent_classifier"
+    }
+  ]
+}
+```
+
+**与事务级路由的关键区别**：
+- 事务级路由：Agent 信息在 `metadata.transaction.agent` 中，由 Supervisor 注入
+- WorkBuddy 路由：Agent 信息在消息体的 `agent` 字段中，由客户端直接携带
+- WorkBuddy 客户端**不发送** `template` 字段
+
+#### Agent 字段提取规则
+
+1. 遍历 `messages`，找到**最后一条** `role: "user"` 的消息，读取其 `agent` 字段
+2. 若 user 消息中无 `agent` 字段，尝试 `metadata.agent`（备选兼容）
+3. 均无 → 使用 fallback 模型 + NO_AGENT 警告
+
+### 使用示例
+
+#### Python (OpenAI SDK)
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="sk-your-master-key",
+    base_url="http://localhost:8000/v1"
+)
+
+# WorkBuddy 客户端请求 — agent 字段标识当前 Agent
+response = client.chat.completions.create(
+    model="any",
+    messages=[
+        {"role": "system", "content": "你是一个意图分类助手"},
+        {
+            "role": "user",
+            "content": "请分类这段文本的意图...",
+            "agent": "intent_classifier"  # WorkBuddy agent 标识
+        }
+    ]
+)
+print(response.choices[0].message.content)
+```
+
+#### Python (httpx)
+
+```python
+import httpx
+
+resp = httpx.post(
+    "http://localhost:8000/v1/chat/completions",
+    headers={"Authorization": "Bearer sk-your-master-key"},
+    json={
+        "model": "any",
+        "messages": [
+            {"role": "system", "content": "你是一个推理引擎"},
+            {
+                "role": "user",
+                "content": "分析以下逻辑问题...",
+                "agent": "reasoning_engine"
+            }
+        ]
+    }
+)
+
+result = resp.json()
+print(result["choices"][0]["message"]["content"])
+print(result["aegis_metadata"])
+```
+
+### 响应格式
+
+路由完成后，响应中包含 `aegis_metadata` 字段：
+
+```json
+{
+  "choices": [...],
+  "aegis_metadata": {
+    "template": "",
+    "agent": "intent_classifier",
+    "assigned_model": "deepseek-v4-pro",
+    "routing_plugin": "agent_workbuddy",
+    "warnings": []
+  }
+}
+```
+
+> 注意：`template` 字段在 agent_workbuddy 模式下始终为空字符串。
+
+### 方案预计算
+
+系统启动时自动为所有 Agent 生成最优模型分配方案：
+
+```
+系统启动
+    │
+    ▼
+加载: models.yaml + capability_profiles.yaml + agent_workbuddy.yaml
+    │
+    ▼
+AgentPlanGenerator.generate_all()
+    │  对每个 Agent:
+    │  ├── 有 override_model? → 直接使用（最高优先级）
+    │  └── 否则: 加载 Profile → 对所有模型打分 → 过滤约束 → 选最优
+    │
+    ▼
+AgentPlanStore (内存 HashMap)
+    │  key: agent_name
+    │  value: model_name
+    │
+    ▼
+就绪 — 所有请求直接查表分发
+```
+
+**启动日志示例**：
+
+```
+[INFO] Agent-WorkBuddy Router: 方案生成完成
+
+  Agent                → Model              (Profile)
+  ───────────────────────────────────────────────────
+  intent_classifier    → deepseek-v4-pro    (lightweight, score=0.89)
+  document_parser      → gpt-5.5           (long_context, score=0.81)
+  reasoning_engine     → gpt-5.5           (strong_reasoning, score=0.85)
+  code_assistant       → codex-mini        (code_specialist, score=0.82, preferred)
+  general_assistant    → deepseek-v4-pro    (medium, score=0.71)
+  heavy_analyst        → gpt-5.6-sol       (override, 管理员指定)
+
+  Total: 6 agents, Fallback: deepseek-v3
+```
+
+### 降级行为
+
+| 场景 | 系统行为 |
+|------|---------|
+| 请求中无 agent 字段 | 使用 fallback 模型 + NO_AGENT 警告 |
+| Agent 名称非法字符 | 使用 fallback 模型 + INVALID_AGENT 警告 |
+| Agent 不在方案表中 | 使用 fallback 模型 + UNKNOWN_AGENT 警告 |
+| agent_workbuddy.yaml 不存在 | 正常启动，方案表为空，所有请求走 fallback |
+| LLM 调用失败 | failover 链重试（仅当次请求，不影响全局方案） |
+
+降级链路：
+
+```
+请求到达
+    │
+    ├── 提取到 agent 字段?
+    │     ├── 名称合法? → agent 在方案表中? → 按方案分发 ✓
+    │     │                     └── 否 → fallback + UNKNOWN_AGENT
+    │     └── 否 → fallback + INVALID_AGENT
+    │
+    └── 否 → fallback + NO_AGENT
+```
+
+### 配置变更与重启
+
+修改以下任一配置文件后，重启 litellm 进程即可触发方案重新计算：
+
+| 文件 | 修改内容 | 影响 |
+|------|---------|------|
+| `config/agent_workbuddy.yaml` | 增删 Agent、修改 Profile 引用、修改 override_model | 方案表变化 |
+| `config/capability_profiles.yaml` | 修改 Profile 权重、约束参数 | 模型选择逻辑变化 |
+| `config/models.yaml` | 增删模型、修改参数 | 可用模型池变化 |
+| `config/config.yaml` | 切换 `routing_plugin` | 路由策略切换 |
+
+#### 操作步骤
+
+```bash
+# === Docker Compose 环境 ===
+
+# 1. 修改配置文件
+vim config/agent_workbuddy.yaml
+
+# 2. 重启 litellm 进程
+docker exec aegis-router supervisorctl restart litellm
+
+# 3. 验证新配置生效
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"any","messages":[{"role":"user","content":"test","agent":"intent_classifier"}]}'
+# 检查响应中 aegis_metadata.assigned_model 是否为预期模型
+
+
+# === K8s 环境 ===
+
+# 1. 修改 ConfigMap
+kubectl apply -f k8s/configmap.yaml
+
+# 2. 重启 Pod
+kubectl rollout restart deployment aegis-router
+
+# 3. 等待就绪
+kubectl rollout status deployment aegis-router
+```
+
+#### 切换路由插件
+
+```bash
+# 切换为 WorkBuddy 路由
+# 修改 config/config.yaml:
+#   routing_plugin: agent_workbuddy
+
+# 切换为对话级路由
+#   routing_plugin: conversation
+
+# 切换为事务级路由
+#   routing_plugin: transaction
+
+# 修改后重启生效
+docker exec aegis-router supervisorctl restart litellm
+```
+
+> **注意**：三种路由插件互斥，同一时刻只有一个激活。切换后原插件完全卸载，不影响新插件功能。
 
 ---
 

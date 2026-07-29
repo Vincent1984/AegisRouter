@@ -6,6 +6,7 @@
 - config/route_overrides.yaml
 - config/capability_profiles.yaml
 - config/transaction_templates.yaml
+- config/agent_workbuddy.yaml
 
 设计参考: design.md 2.3.6 节
 需求参考: FR-2.5, FR-3.6, FR-4.2, NFR-2.2, FR-8.3
@@ -36,6 +37,7 @@ WATCHED_FILES = {
     "route_overrides.yaml",
     "capability_profiles.yaml",
     "transaction_templates.yaml",
+    "agent_workbuddy.yaml",
 }
 
 # 触发事务方案重算的文件集合
@@ -43,6 +45,13 @@ TRANSACTION_PLAN_TRIGGER_FILES = {
     "models.yaml",
     "capability_profiles.yaml",
     "transaction_templates.yaml",
+}
+
+# 触发 Agent-WorkBuddy 方案重算的文件集合
+AGENT_WORKBUDDY_PLAN_TRIGGER_FILES = {
+    "models.yaml",
+    "capability_profiles.yaml",
+    "agent_workbuddy.yaml",
 }
 
 # 默认防抖时间（秒）
@@ -78,6 +87,11 @@ class ConfigWatcher:
     当 capability_profiles.yaml、transaction_templates.yaml 或 models.yaml
     发生变更时，自动重算事务级路由方案表并原子替换。
 
+    当 capability_profiles.yaml、agent_workbuddy.yaml 或 models.yaml
+    发生变更时，自动重算 Agent-WorkBuddy 路由方案表并原子替换。
+
+    注意：Docker overlay fs 环境下 inotify 不触发，热更新功能仅在宿主机环境生效。
+
     Attributes:
         config_dir: 配置文件目录
         debounce_seconds: 防抖时间窗口（秒）
@@ -88,6 +102,7 @@ class ConfigWatcher:
         config_dir: str | Path,
         on_routing_table_updated: Optional[Callable[[list[dict[str, Any]]], None]] = None,
         on_transaction_plan_updated: Optional[Callable[["RoutingPlanStore"], None]] = None,
+        on_agent_workbuddy_plan_updated: Optional[Callable[["AgentPlanStore"], None]] = None,
         debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS,
     ) -> None:
         """初始化配置监听器。
@@ -96,11 +111,13 @@ class ConfigWatcher:
             config_dir: 配置文件目录路径
             on_routing_table_updated: 路由表更新后的回调函数，接收新路由表作为参数
             on_transaction_plan_updated: 事务方案更新后的回调，接收新 RoutingPlanStore
+            on_agent_workbuddy_plan_updated: Agent-WorkBuddy 方案更新后的回调，接收新 AgentPlanStore
             debounce_seconds: 防抖时间窗口（秒），默认 2.0s
         """
         self._config_dir = Path(config_dir)
         self._callback = on_routing_table_updated
         self._transaction_plan_callback = on_transaction_plan_updated
+        self._agent_workbuddy_plan_callback = on_agent_workbuddy_plan_updated
         self._debounce_seconds = debounce_seconds
 
         # Audit logger
@@ -115,6 +132,9 @@ class ConfigWatcher:
 
         # 事务方案相关状态
         self._transaction_plan_store: Optional["RoutingPlanStore"] = None
+
+        # Agent-WorkBuddy 方案相关状态
+        self._agent_workbuddy_plan_store: Optional["AgentPlanStore"] = None
 
         # watchdog observer
         self._observer: Optional[Observer] = None
@@ -294,6 +314,10 @@ class ConfigWatcher:
         # 判断是否需要重算事务方案
         if changed_files & TRANSACTION_PLAN_TRIGGER_FILES:
             self._do_transaction_plan_reload(changed_files)
+
+        # 判断是否需要重算 Agent-WorkBuddy 方案
+        if changed_files & AGENT_WORKBUDDY_PLAN_TRIGGER_FILES:
+            self._do_agent_workbuddy_plan_reload(changed_files)
 
     def _do_transaction_plan_reload(self, changed_files: set[str]) -> None:
         """重算事务级路由方案表。
@@ -528,3 +552,199 @@ class ConfigWatcher:
         """
         with self._lock:
             self._transaction_plan_store = store
+
+    def get_agent_workbuddy_plan_store(self) -> Optional["AgentPlanStore"]:
+        """线程安全地获取当前 Agent-WorkBuddy 方案表。
+
+        Returns:
+            当前 AgentPlanStore 实例，未初始化时返回 None
+        """
+        with self._lock:
+            return self._agent_workbuddy_plan_store
+
+    def set_agent_workbuddy_plan_store(self, store: "AgentPlanStore") -> None:
+        """线程安全地设置 Agent-WorkBuddy 方案表（初始化时使用）。
+
+        Args:
+            store: 初始 AgentPlanStore 实例
+        """
+        with self._lock:
+            self._agent_workbuddy_plan_store = store
+
+    def _do_agent_workbuddy_plan_reload(self, changed_files: set[str]) -> None:
+        """重算 Agent-WorkBuddy 路由方案表。
+
+        当 capability_profiles.yaml、agent_workbuddy.yaml 或 models.yaml
+        变更时调用，重新生成方案并原子替换。
+
+        注意：Docker overlay fs 环境下 inotify 不触发，此功能仅在宿主机环境生效。
+
+        Args:
+            changed_files: 本次触发变更的文件名集合
+        """
+        from aegis_router.router.agent_plan_generator import (
+            AgentPlanGenerator,
+            load_agent_workbuddy_config,
+        )
+        from aegis_router.router.agent_plan_store import AgentPlanStore
+        from aegis_router.router.capability_profiles import CapabilityProfileManager
+
+        trigger_reason = ", ".join(sorted(changed_files & AGENT_WORKBUDDY_PLAN_TRIGGER_FILES))
+        logger.info(
+            "检测到配置变更 [%s]，开始重算 Agent-WorkBuddy 路由方案...",
+            trigger_reason,
+        )
+
+        timestamp = datetime.now(timezone.utc).isoformat()
+
+        try:
+            # 1. 获取当前配置（已在 _do_reload 中完成）
+            config = self.get_current_config()
+            if config is None:
+                config = load_config(self._config_dir)
+
+            fallback_model = config.routing.fallback_model
+
+            # 2. 重新加载 CapabilityProfileManager
+            profiles_path = self._config_dir / "capability_profiles.yaml"
+            profile_manager = CapabilityProfileManager(config_path=profiles_path)
+
+            # 3. 重新加载 agent_workbuddy.yaml
+            agent_workbuddy_path = self._config_dir / "agent_workbuddy.yaml"
+            agents = load_agent_workbuddy_config(config_path=agent_workbuddy_path)
+
+            # 4. 准备模型数据
+            models_data: list[dict[str, Any]] = []
+            for entry in config.models.models:
+                models_data.append({
+                    "name": entry.name,
+                    "litellm_model": entry.litellm_model,
+                    "params": entry.params.model_dump(),
+                })
+
+            # 5. 生成新方案
+            if agents and models_data:
+                generator = AgentPlanGenerator(
+                    profile_manager=profile_manager,
+                    models=models_data,
+                    fallback_model=fallback_model,
+                    trigger_reason=trigger_reason,
+                )
+                new_store = generator.generate_all(agents)
+            else:
+                new_store = AgentPlanStore()
+                logger.info(
+                    "Agent-WorkBuddy 方案重算: Agent 或模型为空，方案表清空 "
+                    "(agents=%d, models=%d)",
+                    len(agents),
+                    len(models_data),
+                )
+
+            # 6. 获取旧方案（用于对比日志）
+            with self._lock:
+                old_store = self._agent_workbuddy_plan_store
+
+            old_plans = old_store.get_all_plans() if old_store else {}
+            new_plans = new_store.get_all_plans()
+
+            # 7. 日志输出新旧方案差异
+            self._log_agent_workbuddy_plan_diff(
+                old_plans, new_plans, trigger_reason, timestamp
+            )
+
+            # 8. 原子替换
+            with self._lock:
+                self._agent_workbuddy_plan_store = new_store
+
+            # 9. 触发 Agent-WorkBuddy 方案回调
+            if self._agent_workbuddy_plan_callback is not None:
+                try:
+                    self._agent_workbuddy_plan_callback(new_store)
+                except Exception as cb_err:
+                    logger.error(
+                        "Agent-WorkBuddy plan callback error: %s", cb_err
+                    )
+
+            logger.info(
+                "Agent-WorkBuddy 方案重算完成 (timestamp=%s, entries=%d)",
+                timestamp,
+                len(new_store),
+            )
+
+        except Exception as e:
+            logger.error(
+                "Agent-WorkBuddy 方案重算失败: %s. 保持上一版方案不变。",
+                e,
+            )
+
+    def _log_agent_workbuddy_plan_diff(
+        self,
+        old_plans: dict[str, str],
+        new_plans: dict[str, str],
+        trigger_reason: str,
+        timestamp: str,
+    ) -> None:
+        """输出 Agent-WorkBuddy 新旧方案对比日志。
+
+        单维度对比：仅比较 agent → model 的变化。
+
+        Args:
+            old_plans: 旧方案 {agent → model}
+            new_plans: 新方案 {agent → model}
+            trigger_reason: 触发原因（变更文件名）
+            timestamp: 变更时间戳
+        """
+        lines: list[str] = []
+        lines.append(
+            f"Agent-WorkBuddy 方案变更对比 (触发: {trigger_reason}, 时间: {timestamp})"
+        )
+        lines.append("-" * 60)
+
+        all_agents = sorted(set(list(old_plans.keys()) + list(new_plans.keys())))
+
+        has_changes = False
+        added_agents: list[str] = []
+        removed_agents: list[str] = []
+        changed_assignments: list[dict[str, str]] = []
+
+        for agent in all_agents:
+            old_model = old_plans.get(agent)
+            new_model = new_plans.get(agent)
+
+            if old_model is None and new_model is not None:
+                has_changes = True
+                added_agents.append(agent)
+                lines.append(f"  {agent}: [新增] → {new_model}")
+            elif old_model is not None and new_model is None:
+                has_changes = True
+                removed_agents.append(agent)
+                lines.append(f"  {agent}: {old_model} → [删除]")
+            elif old_model != new_model:
+                has_changes = True
+                lines.append(f"  {agent}: {old_model} → {new_model}")
+                changed_assignments.append({
+                    "agent": agent,
+                    "old_model": old_model or "",
+                    "new_model": new_model or "",
+                })
+
+        if not has_changes:
+            lines.append("  所有 Agent 方案无变化")
+
+        logger.info("\n".join(lines))
+
+        # Emit structured config change audit event
+        changed_files_list = [f.strip() for f in trigger_reason.split(",") if f.strip()]
+        total_changes = (
+            len(added_agents) + len(removed_agents) + len(changed_assignments)
+        )
+        self._audit.log_config_change_event(
+            changed_files=changed_files_list,
+            trigger_reason=trigger_reason,
+            plan_diff_summary={
+                "added_agents": added_agents,
+                "removed_agents": removed_agents,
+                "changed_assignments": changed_assignments,
+            },
+            total_changes=total_changes,
+        )

@@ -4,6 +4,12 @@ k8s/secret.yaml
 docker-compose.yaml
 tests/test_model_connectivity.py
 
+# Hypothesis (property-based testing cache)
+.hypothesis/
+
+# Pytest cache
+.pytest_cache/
+
 # Python
 __pycache__/
 *.pyc

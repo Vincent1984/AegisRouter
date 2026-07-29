@@ -5,7 +5,7 @@
 # 可选值:
 #   - conversation: 对话级路由（默认）— 每次请求实时打分 → 区间匹配 → 分发
 #   - transaction:  事务级路由 — 启动时预计算方案表，请求直接查表分发
-routing_plugin: transaction
+routing_plugin: agent_workbuddy
 
 model_list:
   # === 本地模型 (免费) ===

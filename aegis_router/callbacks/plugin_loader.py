@@ -3,8 +3,9 @@
 根据 config.yaml 中的 `routing_plugin` 字段加载对应的路由策略插件。
 
 支持的插件:
-  - conversation: 对话级路由 (SmartRouterCallback) — 默认值
-  - transaction:  事务级路由 (TransactionRouterCallback)
+  - conversation:      对话级路由 (SmartRouterCallback) — 默认值
+  - transaction:       事务级路由 (TransactionRouterCallback)
+  - agent_workbuddy:   Agent-WorkBuddy 路由 (AgentWorkbuddyCallback)
 
 用法:
     from aegis_router.callbacks.plugin_loader import load_routing_plugin
@@ -60,6 +61,10 @@ SUPPORTED_PLUGINS: dict[str, tuple[str, str]] = {
     "transaction": (
         "aegis_router.callbacks.transaction_router",
         "TransactionRouterCallback",
+    ),
+    "agent_workbuddy": (
+        "aegis_router.callbacks.agent_workbuddy_router",
+        "AgentWorkbuddyCallback",
     ),
 }
 
@@ -279,6 +284,220 @@ def _log_plan_table(plan_store: "RoutingPlanStore", fallback_model: str) -> None
     logger.info("\n".join(lines))
 
 
+def _initialize_agent_workbuddy_plugin(
+    config_dir: Path,
+    **kwargs,
+) -> BaseRouterCallback:
+    """初始化 Agent-WorkBuddy 路由插件，包含方案预计算。
+
+    加载流程:
+    1. 使用 load_config() 加载 AegisConfig（含 models + route_config）
+    2. 创建 CapabilityProfileManager
+    3. 加载 agent_workbuddy.yaml（不存在时优雅降级为空方案）
+    4. 转换模型数据为 dict 格式
+    5. 创建 AgentPlanGenerator 并调用 generate_all()
+    6. 构造 AgentWorkbuddyCallback 实例
+    7. 输出方案表到启动日志
+    8. 启动 ConfigWatcher 热更新
+
+    当 agent_workbuddy.yaml 不存在时，优雅降级为空方案（所有请求走 fallback）。
+
+    Parameters
+    ----------
+    config_dir : Path
+        配置目录路径。
+    **kwargs
+        额外参数传递给 AgentWorkbuddyCallback 构造函数。
+
+    Returns
+    -------
+    BaseRouterCallback
+        初始化完成的 AgentWorkbuddyCallback 实例。
+    """
+    from aegis_router.callbacks.agent_workbuddy_router import AgentWorkbuddyCallback
+    from aegis_router.config import load_config
+    from aegis_router.router.agent_plan_generator import (
+        AgentPlanGenerator,
+        AgentWorkbuddyDef,
+    )
+    from aegis_router.router.agent_plan_store import AgentPlanStore
+    from aegis_router.router.capability_profiles import CapabilityProfileManager
+
+    # Step 1: 加载聚合配置
+    aegis_config = load_config(config_dir)
+    fallback_model = aegis_config.routing.fallback_model
+
+    # Step 1.5: 提取 failover 链配置
+    failover_chains = aegis_config.failover.chains
+    failover_enabled = aegis_config.failover.enabled
+
+    # Step 2: 创建 CapabilityProfileManager
+    profiles_path = config_dir / "capability_profiles.yaml"
+    profile_manager = CapabilityProfileManager(config_path=profiles_path)
+
+    # Step 3: 加载 agent_workbuddy.yaml
+    agent_workbuddy_path = config_dir / "agent_workbuddy.yaml"
+    agents: list[AgentWorkbuddyDef] = []
+
+    if not agent_workbuddy_path.exists():
+        logger.warning(
+            "Agent-WorkBuddy Router: agent_workbuddy.yaml not found at %s. "
+            "方案表为空，所有请求将使用 fallback 模型 '%s'",
+            agent_workbuddy_path,
+            fallback_model,
+        )
+    else:
+        try:
+            with open(agent_workbuddy_path, "r", encoding="utf-8") as f:
+                raw_data = yaml.safe_load(f)
+        except yaml.YAMLError as e:
+            raise ValueError(
+                f"Agent-WorkBuddy Router: agent_workbuddy.yaml 语法错误: {e}"
+            ) from e
+
+        if isinstance(raw_data, dict):
+            raw_agents = raw_data.get("agents", [])
+            if isinstance(raw_agents, list):
+                for entry in raw_agents:
+                    if isinstance(entry, dict) and "name" in entry:
+                        agents.append(
+                            AgentWorkbuddyDef(
+                                name=entry["name"],
+                                capability_profile=entry.get(
+                                    "capability_profile", "medium"
+                                ),
+                                override_model=entry.get("override_model"),
+                                description=entry.get("description"),
+                            )
+                        )
+
+    # Step 4: 转换模型条目为 dict 格式（AgentPlanGenerator 需要）
+    models_data: list[dict[str, Any]] = []
+    for entry in aegis_config.models.models:
+        models_data.append({
+            "name": entry.name,
+            "litellm_model": entry.litellm_model,
+            "params": entry.params.model_dump(),
+        })
+
+    # Step 5 & 6: 生成方案表
+    if agents and models_data:
+        generator = AgentPlanGenerator(
+            profile_manager=profile_manager,
+            models=models_data,
+            fallback_model=fallback_model,
+            trigger_reason="startup",
+        )
+        plan_store = generator.generate_all(agents)
+    else:
+        plan_store = AgentPlanStore()
+        if not agents:
+            logger.info(
+                "Agent-WorkBuddy Router: 无 Agent 定义，方案表为空，"
+                "所有请求将使用 fallback 模型 '%s'",
+                fallback_model,
+            )
+        if not models_data:
+            logger.info(
+                "Agent-WorkBuddy Router: 无模型定义，方案表为空，"
+                "所有请求将使用 fallback 模型 '%s'",
+                fallback_model,
+            )
+
+    # Step 7: 输出方案表到启动日志
+    _log_agent_workbuddy_plan_table(plan_store, fallback_model)
+
+    # 构造插件实例
+    instance = AgentWorkbuddyCallback(
+        plan_store=plan_store,
+        fallback_model=fallback_model,
+        failover_chains=failover_chains,
+        failover_enabled=failover_enabled,
+        config_dir=str(config_dir),
+        **kwargs,
+    )
+
+    # Step 8: 启动 ConfigWatcher 热更新
+    try:
+        from aegis_router.router.config_watcher import ConfigWatcher
+
+        def _on_agent_workbuddy_plan_updated(new_store: "AgentPlanStore") -> None:
+            """热更新回调：原子替换 plan_store 引用。"""
+            instance.plan_store = new_store
+            logger.info(
+                "Agent-WorkBuddy Router: 方案热更新完成, new_entries=%d",
+                len(new_store),
+            )
+
+        config_watcher = ConfigWatcher(
+            config_dir=config_dir,
+            on_agent_workbuddy_plan_updated=_on_agent_workbuddy_plan_updated,
+        )
+        config_watcher.start()
+
+        # 将 watcher 引用存储在实例上，便于后续停止
+        instance._config_watcher = config_watcher
+
+        logger.info(
+            "Agent-WorkBuddy Router: ConfigWatcher started, "
+            "monitoring capability_profiles.yaml, agent_workbuddy.yaml, models.yaml"
+        )
+    except Exception as e:
+        logger.error(
+            "Agent-WorkBuddy Router: Failed to start ConfigWatcher: %s. "
+            "Hot-reload disabled.",
+            e,
+        )
+
+    return instance
+
+
+def _log_agent_workbuddy_plan_table(
+    plan_store: "AgentPlanStore", fallback_model: str
+) -> None:
+    """输出 Agent-WorkBuddy 方案表到启动日志。
+
+    格式:
+    ======================================================================
+    Agent-WorkBuddy Router - Routing Plan Table
+      Fallback Model: deepseek-v3
+      Total Entries: 6
+    ----------------------------------------------------------------------
+      Agent                → Model
+    ----------------------------------------------------------------------
+      intent_classifier    → deepseek-v4-pro
+      ...
+    ======================================================================
+    """
+    from aegis_router.router.agent_plan_store import AgentPlanStore
+
+    all_plans = plan_store.get_all_plans()
+
+    if not all_plans:
+        logger.info(
+            "Agent-WorkBuddy Router: 方案表为空 (fallback_model=%s)",
+            fallback_model,
+        )
+        return
+
+    lines: list[str] = []
+    lines.append("=" * 70)
+    lines.append("Agent-WorkBuddy Router - Routing Plan Table")
+    lines.append(f"  Fallback Model: {fallback_model}")
+    lines.append(f"  Total Entries: {len(plan_store)}")
+    lines.append("-" * 70)
+    lines.append(f"  {'Agent':<24} → {'Model':<30}")
+    lines.append("-" * 70)
+
+    for agent_name in sorted(all_plans.keys()):
+        model = all_plans[agent_name]
+        lines.append(f"  {agent_name:<24} → {model:<30}")
+
+    lines.append("=" * 70)
+
+    logger.info("\n".join(lines))
+
+
 def load_routing_plugin(
     config_dir: str | Path | None = None,
     **kwargs,
@@ -325,6 +544,18 @@ def load_routing_plugin(
     # --- 事务级路由: 专用初始化路径 ---
     if plugin_name == "transaction":
         instance = _initialize_transaction_plugin(config_dir, **kwargs)
+        logger.info(
+            "Routing plugin '%s' loaded successfully: %s",
+            plugin_name,
+            type(instance).__name__,
+        )
+        _active_plugin_instance = instance
+        _active_plugin_type = plugin_name
+        return instance
+
+    # --- Agent-WorkBuddy 路由: 专用初始化路径 ---
+    if plugin_name == "agent_workbuddy":
+        instance = _initialize_agent_workbuddy_plugin(config_dir, **kwargs)
         logger.info(
             "Routing plugin '%s' loaded successfully: %s",
             plugin_name,
