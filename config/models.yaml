@@ -1,8 +1,108 @@
-# AegisRouter - 模型参数声明 (用于能力评分与路由区间计算)
-# 系统根据以下参数自动计算 computed_score 和 score_range
+# =============================================================================
+# AegisRouter — 模型参数声明文件
+# =============================================================================
+#
+# 本文件声明系统中所有可用的 LLM 模型及其能力参数。
+# 事务级路由（Transaction Router）根据这些参数为每个 Agent 自动匹配最优模型。
+# 对话级路由也使用此文件计算 computed_score 和 score_range。
+#
+# === 工作原理 ===
+#
+# 1. 系统加载本文件中的所有模型
+# 2. 根据 capability_profiles.yaml 中 Profile 的 scoring_weights，
+#    对每个模型的 params 进行加权打分（归一化到 0~1）
+# 3. 根据 Profile 的约束条件（min_score_threshold, max_cost, min_context_window）
+#    过滤不满足要求的模型
+# 4. 从候选模型中选出得分最高的（或命中 prefer_models 的）作为最终分配
+#
+# === 字段说明 ===
+#
+# models:                          顶层字段，包含所有模型定义的列表
+#   - name:                        模型唯一标识（用于 override_model 引用、日志输出等）
+#     litellm_model:               LiteLLM 格式的模型路径（provider/model-name）
+#     provider:                    模型提供商标识（local, deepseek, anthropic, openai, google）
+#     params:                      模型能力参数（用于评分和约束过滤）
+#
+# === params 各字段详解 ===
+#
+# parameter_size_b        模型参数量（单位：十亿/Billion）
+#                         - 本地模型填写实际参数量（如 7 = 70亿参数）
+#                         - 闭源/未公开参数量的模型填 null
+#                         - 仅供参考，当前不参与评分
+#
+# context_window          最大上下文窗口（单位：tokens）
+#                         - 决定模型能处理的最大输入长度
+#                         - Profile 中 min_context_window 约束会过滤不满足的模型
+#                         - 评分时归一化范围：4,096 ~ 2,000,000
+#
+# benchmark_mmlu          MMLU 基准分数（范围：0 ~ 100）
+#                         - 衡量模型的通用知识和语言理解能力
+#                         - 涵盖 57 个学科领域
+#                         - 评分时归一化范围：0 ~ 100
+#
+# benchmark_humaneval     HumanEval 基准分数（范围：0 ~ 100）
+#                         - 衡量模型的代码生成能力（Python 函数补全通过率）
+#                         - code_specialist Profile 中此项权重最高（50%）
+#                         - 评分时归一化范围：0 ~ 100
+#
+# benchmark_math          Math 基准分数（范围：0 ~ 100）
+#                         - 衡量模型的数学推理能力
+#                         - strong_reasoning Profile 中此项权重最高（35%）
+#                         - 评分时归一化范围：0 ~ 100
+#
+# cost_per_1m_input       输入成本（单位：美元 / 每百万 input tokens）
+#                         - 本地模型填 0.0
+#                         - Profile 中 max_cost_per_1m_input 约束会过滤超预算模型
+#                         - cost_efficiency 评分维度：成本越低，得分越高
+#                         - 归一化范围：0 ~ 20（超过 20 按 0 分计）
+#
+# cost_per_1m_output      输出成本（单位：美元 / 每百万 output tokens）
+#                         - 本地模型填 0.0
+#                         - 当前不直接参与评分，但可用于成本监控和计费
+#
+# latency_avg_ms          平均响应延迟（单位：毫秒）
+#                         - 本地模型通常 100~300ms
+#                         - API 模型通常 300~3000ms
+#                         - 当前不直接参与 Profile 评分
+#                         - 可用于监控和 SLA 告警
+#
+# supports_streaming      是否支持流式响应（true / false）
+#                         - 大多数现代模型都支持
+#                         - 当前不参与评分，供功能兼容性判断使用
+#
+# supports_function_call  是否支持函数调用/工具调用（true / false）
+#                         - Agent 需要调用外部工具时，此项必须为 true
+#                         - 当前不参与评分，供功能兼容性判断使用
+#
+# === 如何添加新模型 ===
+#
+# 1. 在下方 models 列表中添加一个新条目
+# 2. 填写 name（唯一标识）、litellm_model（LiteLLM 路径）、provider
+# 3. 填写 params 中的各项参数（尽量填写准确的 benchmark 数据）
+# 4. 保存文件，系统会自动检测变更并重新计算所有模板的模型分配方案
+#
+# 示例：
+#   - name: my-new-model
+#     litellm_model: provider/model-name
+#     provider: provider-name
+#     params:
+#       parameter_size_b: null          # 未知则填 null
+#       context_window: 128000
+#       benchmark_mmlu: 85.0
+#       benchmark_humaneval: 80.0
+#       benchmark_math: 75.0
+#       cost_per_1m_input: 1.00
+#       cost_per_1m_output: 4.00
+#       latency_avg_ms: 500
+#       supports_streaming: true
+#       supports_function_call: true
+#
+# =============================================================================
 
 models:
   # === 本地模型 ===
+  # 注意: local-7b 当前不可用（Ollama 服务器离线），保留配置供未来使用
+  # 评分时会被选为 lightweight 候选，但实际不可达时会 failover
   - name: local-7b
     litellm_model: ollama/qwen2.5-7b
     provider: local
@@ -17,8 +117,10 @@ models:
       latency_avg_ms: 200
       supports_streaming: true
       supports_function_call: false
+      available: false            # 标记为不可用，评分时跳过
 
   # === DeepSeek ===
+  # 高性价比的大参数量模型，推理能力强，成本远低于同级竞品。
   - name: deepseek-v4-pro
     litellm_model: deepseek/deepseek-v4-pro
     provider: deepseek
@@ -35,6 +137,7 @@ models:
       supports_function_call: true
 
   # === Claude (Anthropic) ===
+  # 代码能力突出，长上下文支持好，适合 code_specialist 和 long_context Profile。
   - name: claude-sonnet
     litellm_model: anthropic/claude-sonnet-4-20250514
     provider: anthropic
@@ -50,7 +153,8 @@ models:
       supports_streaming: true
       supports_function_call: true
 
-  # === GPT 系列 ===
+  # === GPT 系列 (OpenAI) ===
+  # 从 mini（平衡型）到 sol（最强推理）覆盖多个定位，codex-mini 专注代码任务。
   - name: gpt-5.2
     litellm_model: openai/gpt-5.2
     provider: openai
@@ -126,7 +230,9 @@ models:
       supports_streaming: true
       supports_function_call: true
 
-  # === Gemini ===
+  # === Gemini (Google) ===
+  # 超大上下文窗口是核心优势（最高 2M tokens），适合 long_context Profile。
+  # flash 版本主打低成本高速度。
   - name: gemini-2.5-flash
     litellm_model: gemini/gemini-2.5-flash
     provider: google
@@ -141,6 +247,7 @@ models:
       latency_avg_ms: 300
       supports_streaming: true
       supports_function_call: true
+      available: false            # 代理 503 账户耗尽
 
   - name: gemini-2.5-pro
     litellm_model: gemini/gemini-2.5-pro
@@ -156,6 +263,7 @@ models:
       latency_avg_ms: 800
       supports_streaming: true
       supports_function_call: true
+      available: false            # 代理不支持此模型名
 
   - name: gemini-3.1-pro
     litellm_model: gemini/gemini-3.1-pro-preview

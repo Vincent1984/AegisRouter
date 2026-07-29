@@ -1,0 +1,132 @@
+# =============================================================================
+# AegisRouter 能力 Profile 配置文件
+# =============================================================================
+#
+# 本文件定义了系统内置的 6 种能力 Profile，用于事务级路由的模型选择。
+# 每个 Profile 描述了一类任务的模型需求特征，系统根据 Profile 为 Agent 自动匹配最优模型。
+#
+# 如果此文件不存在或为空，系统将使用代码内置的默认 Profile。
+# 用户可根据业务需求修改权重和约束参数。
+#
+# === 字段说明 ===
+#
+# description:          Profile 描述，说明适用场景
+#
+# scoring_weights:      评分权重（各维度权重之和应为 1.0）
+#   benchmark_mmlu:       MMLU 综合知识能力权重
+#   benchmark_humaneval:  HumanEval 代码能力权重
+#   benchmark_math:       数学推理能力权重
+#   context_window:       上下文窗口长度权重
+#   cost_efficiency:      成本效率权重（成本越低分数越高）
+#
+# min_score_threshold:  最低能力门槛（0.0 ~ 1.0），低于此分数的模型被排除
+#
+# max_cost_per_1m_input: 成本硬约束上限（单位: $/1M input tokens），
+#                        超过此成本的模型直接排除
+#
+# min_context_window:   最低上下文长度约束（单位: tokens），
+#                       仅在需要处理超长文本时设置，不满足的模型被排除
+#
+# prefer_models:        偏好模型列表，候选中命中偏好的模型将被优先选中
+#
+# =============================================================================
+
+profiles:
+  # ---------------------------------------------------------------------------
+  # lightweight: 低延迟低成本场景
+  # 适用于简单分类、意图识别、标签提取等轻量任务
+  # 极度偏重成本效率（75%），对模型能力要求极低
+  # ---------------------------------------------------------------------------
+  lightweight:
+    description: "低延迟低成本，简单分类/意图识别"
+    scoring_weights:
+      benchmark_mmlu: 0.10
+      benchmark_humaneval: 0.05
+      benchmark_math: 0.05
+      context_window: 0.05
+      cost_efficiency: 0.75
+    min_score_threshold: 0.0
+    max_cost_per_1m_input: 0.5
+    prefer_models: [local-7b]
+
+  # ---------------------------------------------------------------------------
+  # medium: 平衡型场景
+  # 适用于一般问答、摘要、信息提取等中等复杂度任务
+  # 在质量和成本之间取得平衡
+  # ---------------------------------------------------------------------------
+  medium:
+    description: "平衡质量和成本"
+    scoring_weights:
+      benchmark_mmlu: 0.25
+      benchmark_humaneval: 0.15
+      benchmark_math: 0.15
+      context_window: 0.10
+      cost_efficiency: 0.35
+    min_score_threshold: 0.30
+    max_cost_per_1m_input: 3.0
+
+  # ---------------------------------------------------------------------------
+  # strong_reasoning: 强推理场景
+  # 适用于复杂逻辑推理、数学问题、多步分析等高难度任务
+  # 偏重数学和代码能力，对成本容忍度较高
+  # ---------------------------------------------------------------------------
+  strong_reasoning:
+    description: "强推理，复杂逻辑/数学/分析"
+    scoring_weights:
+      benchmark_mmlu: 0.15
+      benchmark_humaneval: 0.30
+      benchmark_math: 0.35
+      context_window: 0.05
+      cost_efficiency: 0.15
+    min_score_threshold: 0.60
+    max_cost_per_1m_input: 20.0
+
+  # ---------------------------------------------------------------------------
+  # code_specialist: 代码专精场景
+  # 适用于代码生成、代码审查、Bug 修复等编程任务
+  # HumanEval 权重最高（50%），支持偏好模型列表
+  # ---------------------------------------------------------------------------
+  code_specialist:
+    description: "代码专精"
+    scoring_weights:
+      benchmark_mmlu: 0.10
+      benchmark_humaneval: 0.50
+      benchmark_math: 0.15
+      context_window: 0.10
+      cost_efficiency: 0.15
+    min_score_threshold: 0.50
+    max_cost_per_1m_input: 10.0
+    prefer_models: [codex-mini, gpt-5.5]
+
+  # ---------------------------------------------------------------------------
+  # long_context: 超长上下文场景
+  # 适用于长文档分析、大型代码库理解、多文件摘要等任务
+  # 上下文窗口权重最高（50%），并设置最低 500K tokens 硬约束
+  # ---------------------------------------------------------------------------
+  long_context:
+    description: "超长上下文"
+    scoring_weights:
+      benchmark_mmlu: 0.15
+      benchmark_humaneval: 0.10
+      benchmark_math: 0.10
+      context_window: 0.50
+      cost_efficiency: 0.15
+    min_score_threshold: 0.35
+    min_context_window: 500000
+    max_cost_per_1m_input: 10.0
+
+  # ---------------------------------------------------------------------------
+  # heavy: 最强模型场景
+  # 适用于最复杂的推理任务，对成本几乎不敏感
+  # 综合能力要求最高（门槛 0.75），允许使用最昂贵的模型
+  # ---------------------------------------------------------------------------
+  heavy:
+    description: "最强模型，复杂推理"
+    scoring_weights:
+      benchmark_mmlu: 0.30
+      benchmark_humaneval: 0.25
+      benchmark_math: 0.30
+      context_window: 0.10
+      cost_efficiency: 0.05
+    min_score_threshold: 0.75
+    max_cost_per_1m_input: 60.0

@@ -1,0 +1,123 @@
+# =============================================================================
+# AegisRouter 事务级路由 — 业务流程模板配置示例
+# =============================================================================
+#
+# 使用方法：
+#   1. 复制本文件为 transaction_templates.yaml
+#      cp transaction_templates.yaml.example transaction_templates.yaml
+#   2. 根据你的业务流程修改模板定义
+#   3. 启动或重启 AegisRouter，系统会自动加载并预计算模型分配方案
+#
+# === 快速入门 ===
+#
+# 每个模板（template）代表一个多 Agent 协作的业务流程。
+# 系统在启动时为每个 Agent 自动匹配最优模型，之后请求直接查表分发。
+#
+# 你只需要为每个 Agent 指定一个 capability_profile（能力 Profile），
+# 系统会根据 Profile 的评分权重从 models.yaml 中选出最合适的模型。
+#
+# === 可用的 capability_profile ===
+#
+# 以下 Profile 定义在 config/capability_profiles.yaml 中：
+#
+#   lightweight       - 低延迟低成本，适合简单分类/意图识别
+#   medium            - 平衡质量和成本，适合一般问答/摘要
+#   strong_reasoning  - 强推理能力，适合复杂逻辑/数学/分析
+#   code_specialist   - 代码专精，适合代码生成/审查
+#   long_context      - 超长上下文，适合长文档分析（需 500K+ tokens）
+#   heavy             - 最强模型，适合最复杂的推理任务（成本最高）
+#
+# === 字段说明 ===
+#
+# templates:
+#   <模板名称>:                    # 唯一标识，用于 API 调用时指定
+#     description: "描述"          # 模板说明（仅供日志/文档使用）
+#     agents:                      # Agent 列表
+#       - name: <agent名称>        # Agent 标识（同一模板内唯一）
+#         capability_profile: xxx  # 能力 Profile（必填）
+#         override_model: yyy      # 可选：直接指定模型，跳过自动选择
+#
+# =============================================================================
+
+templates:
+  # ---------------------------------------------------------------------------
+  # 示例 1：最简单的单 Agent 模板
+  # ---------------------------------------------------------------------------
+  simple_qa:
+    description: "简单问答流程（单 Agent 示例）"
+    agents:
+      - name: responder
+        capability_profile: medium          # 使用 medium 即可满足一般问答需求
+
+  # ---------------------------------------------------------------------------
+  # 示例 2：典型的多 Agent 协作流程
+  # 展示如何为不同角色的 Agent 分配不同的 Profile
+  # ---------------------------------------------------------------------------
+  document_processing:
+    description: "文档处理流程（多 Agent 示例）"
+    agents:
+      # 第一步：分类器 — 任务简单，追求低成本
+      - name: classifier
+        capability_profile: lightweight
+
+      # 第二步：文档解析 — 文档可能很长，需要大上下文
+      - name: parser
+        capability_profile: long_context
+
+      # 第三步：摘要生成 — 需要综合理解能力
+      - name: summarizer
+        capability_profile: medium
+
+  # ---------------------------------------------------------------------------
+  # 示例 3：使用 override_model 手动指定模型
+  # 当你需要为某个 Agent 固定使用特定模型时（如合规要求、A/B 测试），
+  # 使用 override_model 字段，该值必须是 config/models.yaml 中已定义的模型名
+  # ---------------------------------------------------------------------------
+  critical_analysis:
+    description: "关键分析流程（演示 override_model）"
+    agents:
+      - name: data_prep
+        capability_profile: lightweight     # 数据准备用低成本模型
+
+      - name: analyst
+        capability_profile: heavy
+        override_model: gpt-5.6-sol         # 管理员指定：必须使用此模型
+
+# =============================================================================
+# 客户端调用示例
+# =============================================================================
+#
+# Supervisor 在发起请求时注入 metadata，指定使用哪个模板和 Agent：
+#
+#   POST /chat/completions
+#   {
+#     "messages": [{"role": "user", "content": "请分析这份文档"}],
+#     "metadata": {
+#       "transaction": {
+#         "template": "document_processing",
+#         "agent": "parser"
+#       }
+#     }
+#   }
+#
+# AegisRouter 会根据预计算方案自动将请求路由到最优模型。
+# Agent 代码无需任何修改，路由对 Agent 完全透明。
+#
+# =============================================================================
+# 常见问题
+# =============================================================================
+#
+# Q: 如果没有配置 transaction_templates.yaml 会怎样？
+# A: 系统正常启动，所有请求走 fallback 模型（在 config.yaml 中配置）。
+#
+# Q: 如果请求中没有 transaction metadata 会怎样？
+# A: 同上，走 fallback 模型。事务级路由仅对带 metadata 的请求生效。
+#
+# Q: 同一个 Agent 名称可以出现在不同模板中吗？
+# A: 可以。系统通过 (template_name, agent_name) 二元组唯一确定模型分配，
+#    同名 Agent 在不同模板中可以使用不同的 Profile，分配到不同的模型。
+#
+# Q: 修改此文件后需要重启吗？
+# A: 不需要。系统支持配置热更新，文件变更后自动重新计算方案。
+#
+# =============================================================================

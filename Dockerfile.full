@@ -27,7 +27,8 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt || true
 
 # 安装 spaCy 中文模型
-RUN python -m spacy download zh_core_web_sm
+RUN pip install --upgrade pip && \
+    pip install https://github.com/explosion/spacy-models/releases/download/zh_core_web_sm-3.8.0/zh_core_web_sm-3.8.0-py3-none-any.whl
 
 # --------------------------------------------------------------------------
 # 安装 routellm stub（真实路由测试可后续替换）
@@ -43,6 +44,7 @@ RUN pip install ./docker_stubs/clawvault && rm -rf ./docker_stubs
 COPY aegis_router/ ./aegis_router/
 COPY config/ ./config/
 COPY patterns/ ./patterns/
+COPY start_litellm.py .
 COPY pyproject.toml .
 RUN pip install -e .
 
@@ -52,7 +54,7 @@ RUN pip install -e .
 COPY supervisord.conf /etc/supervisord.conf
 
 HEALTHCHECK --interval=10s --timeout=5s --retries=5 --start-period=30s \
-  CMD curl -f http://localhost:8000/health || exit 1
+  CMD curl -sf -H "Authorization: Bearer ${AEGIS_MASTER_KEY}" http://localhost:8000/health/liveliness || exit 1
 
 EXPOSE 8000
 

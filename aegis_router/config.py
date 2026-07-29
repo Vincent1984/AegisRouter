@@ -110,6 +110,7 @@ class ModelParams(BaseModel):
     latency_avg_ms: Optional[float] = None
     supports_streaming: bool = True
     supports_function_call: bool = False
+    available: bool = True  # 标记模型是否可用，False 时评分跳过
 
 
 class ModelEntry(BaseModel):
@@ -180,9 +181,17 @@ class RoutingConfig(BaseModel):
     scoring: ScoringConfig = Field(default_factory=ScoringConfig)
 
 
+class FailoverConfig(BaseModel):
+    """config/route_config.yaml 中 failover 段的结构。"""
+    enabled: bool = True
+    timeout_ms: int = 50
+    chains: dict[str, list[str]] = Field(default_factory=dict)
+
+
 class RouteConfigFile(BaseModel):
     """config/route_config.yaml 的顶层结构。"""
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
+    failover: FailoverConfig = Field(default_factory=FailoverConfig)
 
 
 # --- route_overrides.yaml ---
@@ -209,6 +218,7 @@ class AegisConfig(BaseModel):
     litellm: LiteLLMConfig = Field(default_factory=LiteLLMConfig)
     models: ModelsConfig = Field(default_factory=ModelsConfig)
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
+    failover: FailoverConfig = Field(default_factory=FailoverConfig)
     overrides: RouteOverridesConfig = Field(default_factory=RouteOverridesConfig)
     config_dir: str = "./config"
 
@@ -255,15 +265,24 @@ def load_config(config_dir: str | Path = "./config") -> AegisConfig:
     if raw_route:
         route_file = RouteConfigFile(**raw_route)
         routing_cfg = route_file.routing
+        failover_cfg = route_file.failover
     else:
         routing_cfg = RoutingConfig()
+        failover_cfg = FailoverConfig()
 
-    overrides_cfg = RouteOverridesConfig(**raw_overrides) if raw_overrides else RouteOverridesConfig()
+    # Handle case where route_overrides.yaml has `overrides: null` (all entries commented out)
+    if raw_overrides:
+        # Filter out None values from parsed YAML (e.g., `overrides:` with no value)
+        cleaned_overrides = {k: v for k, v in raw_overrides.items() if v is not None}
+        overrides_cfg = RouteOverridesConfig(**cleaned_overrides) if cleaned_overrides else RouteOverridesConfig()
+    else:
+        overrides_cfg = RouteOverridesConfig()
 
     return AegisConfig(
         litellm=litellm_cfg,
         models=models_cfg,
         routing=routing_cfg,
+        failover=failover_cfg,
         overrides=overrides_cfg,
         config_dir=str(config_path),
     )

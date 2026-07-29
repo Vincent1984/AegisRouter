@@ -19,6 +19,7 @@
 - [配置参考](#配置参考)
 - [API 使用示例](#api-使用示例)
 - [智能路由详解](#智能路由详解)
+- [事务级路由详解](#事务级路由详解)
 - [PII 脱敏详解](#pii-脱敏详解)
 - [安全合规](#安全合规)
 - [灾备容错](#灾备容错)
@@ -580,6 +581,478 @@ prompt 进入
 ### 配置热更新
 
 修改 `config/route_config.yaml`、`config/models.yaml` 或 `config/route_overrides.yaml` 后，系统通过文件监听自动重新计算路由表，无需重启服务。
+
+---
+
+## 事务级路由详解
+
+### 概述
+
+事务级路由是 AegisRouter 的第二阶段路由策略，面向多 Agent 协作的业务流程场景。与对话级路由（每次请求实时打分）不同，事务级路由在**系统启动时**为所有业务流程模板中的每个 Agent 预计算好模型分配方案，之后请求直接查表分发——纯内存 HashMap 查找，延迟 < 0.1ms。
+
+**核心特点**：
+- 路由上下文由 **Supervisor 注入**，Agent 代码零修改
+- 查表 key：`(template_name, agent_name) → model_name`
+- 同一 Agent 在不同模板下可分配不同模型
+- 与对话级路由插件互斥可选
+
+### 启用方式
+
+在 `config/config.yaml` 中添加 `routing_plugin` 字段：
+
+```yaml
+# config/config.yaml
+model_list:
+  - model_name: gpt-4o
+    litellm_params:
+      model: openai/gpt-4o
+      api_key: os.environ/OPENAI_API_KEY
+  # ... 其他模型
+
+# 路由插件选择（默认为 conversation）
+routing_plugin: transaction
+```
+
+| 值 | 路由模式 | 说明 |
+|---|---------|------|
+| `conversation` (默认) | 对话级路由 | 每次请求实时打分，~10ms |
+| `transaction` | 事务级路由 | 预计算查表，< 0.1ms |
+
+### 核心概念
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    事务级路由核心概念                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  Template (业务流程模板)                                          │
+│    └── 定义一个业务流程中所有参与的 Agent 及其能力需求             │
+│                                                                  │
+│  Agent (处理节点)                                                 │
+│    └── 模板中的处理环节，声明所需的 capability_profile            │
+│                                                                  │
+│  Capability Profile (能力 Profile)                                │
+│    └── 定义评分权重 + 硬约束，决定选用哪个模型                    │
+│                                                                  │
+│  Routing Plan Store (方案表)                                      │
+│    └── 内存 HashMap: (template, agent) → model                   │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### 配置文件
+
+事务级路由涉及以下配置文件：
+
+| 文件 | 用途 | 是否必须 |
+|------|------|---------|
+| `config/config.yaml` | 添加 `routing_plugin: transaction` | 是 |
+| `config/capability_profiles.yaml` | 定义 6 种内置能力 Profile | 否（有内置默认值） |
+| `config/transaction_templates.yaml` | 定义业务流程模板 | 否（无模板时走 fallback） |
+| `config/models.yaml` | 模型能力参数（评分依据） | 是 |
+
+#### 内置能力 Profile
+
+系统预定义 6 种 Profile（`config/capability_profiles.yaml`）：
+
+| Profile | 用途 | 核心权重 | 成本上限 |
+|---------|------|---------|---------|
+| `lightweight` | 简单分类/意图识别 | cost_efficiency 75% | $0.5/M |
+| `medium` | 平衡质量与成本 | 均衡分布 | $3.0/M |
+| `strong_reasoning` | 复杂推理/数学/分析 | math 35% + humaneval 30% | $20/M |
+| `code_specialist` | 代码专精 | humaneval 50% | $10/M |
+| `long_context` | 超长上下文处理 | context_window 50% | $10/M |
+| `heavy` | 最强模型 | min_score_threshold 0.75 | $60/M |
+
+### 配置示例
+
+#### config/transaction_templates.yaml
+
+```yaml
+templates:
+  # 简历筛选流程 — 4 个 Agent 协作
+  resume_screening:
+    description: "简历筛选流程"
+    agents:
+      - name: intent_classifier
+        capability_profile: lightweight        # 低成本，简单意图分类
+      - name: resume_parser
+        capability_profile: long_context       # 需要处理长文档
+      - name: skill_matcher
+        capability_profile: strong_reasoning   # 复杂技能匹配推理
+      - name: compliance_checker
+        capability_profile: medium             # 平衡型合规检查
+
+  # 代码审查流程
+  code_review:
+    description: "代码审查流程"
+    agents:
+      - name: code_analyzer
+        capability_profile: code_specialist    # 代码分析专精
+      - name: issue_detector
+        capability_profile: strong_reasoning   # 逻辑问题发现
+      - name: fix_suggester
+        capability_profile: code_specialist    # 修复建议
+
+  # 供应商评估流程
+  supplier_evaluation:
+    description: "供应商评估流程"
+    agents:
+      - name: data_collector
+        capability_profile: lightweight
+      - name: performance_scorer
+        capability_profile: medium
+      - name: compliance_checker
+        capability_profile: strong_reasoning
+      - name: tier_determiner
+        capability_profile: strong_reasoning
+
+  # 自定义流程 — 支持管理员直接指定模型
+  custom_pipeline:
+    description: "自定义流程（部分 Agent 手动指定模型）"
+    agents:
+      - name: analyzer
+        capability_profile: medium
+      - name: generator
+        capability_profile: heavy
+        override_model: gpt-5.6-sol           # 管理员覆盖，最高优先级
+```
+
+### Supervisor 注入 metadata 示例
+
+事务级路由的核心设计：**Agent 代码无任何修改**，路由上下文由 Supervisor 在编排时注入到请求的 `metadata.transaction` 中。
+
+#### Python (OpenAI SDK)
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="sk-your-master-key",
+    base_url="http://localhost:8000/v1"
+)
+
+# ═══════════════════════════════════════════════════════════
+# Supervisor 编排代码 — 注入 transaction metadata
+# ═══════════════════════════════════════════════════════════
+
+def run_resume_screening_pipeline(resume_text: str):
+    """Supervisor 编排简历筛选流程"""
+
+    # Step 1: 意图分类 Agent
+    resp1 = client.chat.completions.create(
+        model="placeholder",  # 会被 AegisRouter 覆盖为 local-7b
+        messages=[{"role": "user", "content": f"分类以下文本的意图: {resume_text[:200]}"}],
+        extra_body={
+            "metadata": {
+                "transaction": {
+                    "template": "resume_screening",
+                    "agent": "intent_classifier"
+                }
+            }
+        }
+    )
+
+    # Step 2: 简历解析 Agent
+    resp2 = client.chat.completions.create(
+        model="placeholder",  # 会被 AegisRouter 覆盖为 gemini-2.5-pro
+        messages=[{"role": "user", "content": f"解析以下简历: {resume_text}"}],
+        extra_body={
+            "metadata": {
+                "transaction": {
+                    "template": "resume_screening",
+                    "agent": "resume_parser"
+                }
+            }
+        }
+    )
+
+    # Step 3: 技能匹配 Agent
+    resp3 = client.chat.completions.create(
+        model="placeholder",  # 会被 AegisRouter 覆盖为 gpt-5.5
+        messages=[{"role": "user", "content": f"匹配技能: {resp2.choices[0].message.content}"}],
+        extra_body={
+            "metadata": {
+                "transaction": {
+                    "template": "resume_screening",
+                    "agent": "skill_matcher"
+                }
+            }
+        }
+    )
+
+    return resp3.choices[0].message.content
+
+
+# ═══════════════════════════════════════════════════════════
+# Agent 内部代码 — 零修改，正常调用 LLM
+# ═══════════════════════════════════════════════════════════
+
+class ResumeParserAgent:
+    """Agent 本身不感知路由信息，metadata 由 Supervisor 透传"""
+
+    def __init__(self, client, metadata):
+        self.client = client
+        self.metadata = metadata  # Supervisor 传入
+
+    async def parse(self, resume_text: str):
+        response = self.client.chat.completions.create(
+            model="placeholder",  # AegisRouter 根据 metadata 自动分发
+            messages=[{"role": "user", "content": f"解析简历: {resume_text}"}],
+            extra_body={"metadata": self.metadata}
+        )
+        return response.choices[0].message.content
+```
+
+#### Python (httpx)
+
+```python
+import httpx
+
+# Supervisor 注入 metadata 的 httpx 示例
+resp = httpx.post(
+    "http://localhost:8000/v1/chat/completions",
+    headers={"Authorization": "Bearer sk-your-master-key"},
+    json={
+        "model": "placeholder",
+        "messages": [{"role": "user", "content": "分析这段代码的问题..."}],
+        "metadata": {
+            "transaction": {
+                "template": "code_review",
+                "agent": "code_analyzer"
+            }
+        }
+    }
+)
+
+result = resp.json()
+print(result["choices"][0]["message"]["content"])
+
+# 响应中包含 aegis_metadata
+print(result["aegis_metadata"])
+# {
+#   "template": "code_review",
+#   "agent": "code_analyzer",
+#   "assigned_model": "codex-mini",
+#   "routing_plugin": "transaction",
+#   "warnings": []
+# }
+```
+
+### 响应格式
+
+事务级路由的响应在标准 OpenAI 格式基础上扩展 `aegis_metadata` 字段：
+
+```jsonc
+{
+  "id": "chatcmpl-xxx",
+  "choices": [
+    {
+      "message": {
+        "role": "assistant",
+        "content": "..."
+      }
+    }
+  ],
+  "aegis_metadata": {
+    "template": "resume_screening",
+    "agent": "resume_parser",
+    "assigned_model": "gemini-2.5-pro",
+    "routing_plugin": "transaction",
+    "warnings": []                      // 正常情况为空
+  }
+}
+```
+
+**warnings 可能的值**：
+
+| Warning | 含义 |
+|---------|------|
+| `UNKNOWN_AGENT` | Agent 不在模板定义中，已降级为 fallback 模型 |
+| `PROFILE_NOT_FOUND` | Profile 不存在，已降级为 medium |
+| `NO_CANDIDATE` | 无模型满足约束，已使用 fallback 模型 |
+
+### 方案生成机制
+
+系统在启动时（或配置变更时）预计算所有模板的分配方案：
+
+```
+系统启动 / 配置文件变更
+    │
+    ▼
+加载: models.yaml + capability_profiles.yaml + transaction_templates.yaml
+    │
+    ▼
+TemplatePlanGenerator.generate_all()
+    │  对每个模板的每个 Agent:
+    │  ├── 有 override_model? → 直接使用（最高优先级）
+    │  └── 否则: 加载 Profile → 对所有模型打分 → 过滤约束 → 选最优
+    │
+    ▼
+RoutingPlanStore (内存 HashMap)
+    │  key: (template_name, agent_name)
+    │  value: model_name
+    │
+    ▼
+就绪 — 所有请求直接查表分发
+```
+
+**启动日志示例**：
+
+```
+[INFO] Transaction Router: 方案生成完成
+
+模板: resume_screening
+  intent_classifier   → local-7b         (profile=lightweight, score=0.92)
+  resume_parser       → gemini-2.5-pro   (profile=long_context, score=0.78)
+  skill_matcher       → gpt-5.5          (profile=strong_reasoning, score=0.85)
+  compliance_checker  → deepseek-v4-pro  (profile=medium, score=0.71)
+
+模板: code_review
+  code_analyzer       → codex-mini       (profile=code_specialist, preferred)
+  issue_detector      → gpt-5.5          (profile=strong_reasoning, score=0.85)
+  fix_suggester       → codex-mini       (profile=code_specialist, preferred)
+
+模板: custom_pipeline
+  analyzer            → deepseek-v4-pro  (profile=medium, score=0.71)
+  generator           → gpt-5.6-sol      (override, 管理员指定)
+```
+
+### 配置热更新
+
+修改 `config/capability_profiles.yaml`、`config/transaction_templates.yaml` 或 `config/models.yaml` 后，系统通过文件监听自动重新计算方案表，无需重启服务。方案通过引用替换实现原子更新，进行中的请求不受影响。
+
+**变更日志示例**：
+
+```
+[INFO] 检测到 models.yaml 变更，重算所有模板方案...
+
+模板: resume_screening 变化:
+  skill_matcher: gpt-5.5 → gpt-5.2  (新模型评分更高)
+  其他 Agent 不变
+
+模板: code_review 无变化
+模板: custom_pipeline 无变化 (generator 为 override，不受影响)
+```
+
+### 与对话级路由的对比
+
+| 维度 | 对话级路由 (`conversation`) | 事务级路由 (`transaction`) |
+|------|---------------------------|--------------------------|
+| 路由粒度 | 单次请求 | 模板 × Agent |
+| 决策时机 | 每次请求实时打分 | 启动时/配置变更时预计算 |
+| 分发方式 | RouteLLM 打分 → 区间匹配 | 查表 (template, agent) → model |
+| 分发延迟 | ~10ms | < 0.1ms |
+| 状态依赖 | Redis（会话锁定） | 纯内存（无外部依赖） |
+| Agent 侵入 | 无 | 无（Supervisor 注入上下文） |
+| 适用场景 | 独立对话请求 | 多 Agent 协作的业务流程 |
+| 灵活性 | 根据 prompt 内容动态选模型 | 按预定义方案固定分发 |
+| 可预测性 | 相同 prompt 可能路由到不同模型 | 确定性分发，100% 可预测 |
+
+**选择建议**：
+- 独立对话、prompt 难度差异大 → `conversation`
+- 多 Agent 流水线、追求极低延迟和确定性 → `transaction`
+
+### 降级行为
+
+```
+请求到达
+    │
+    ├── 有 transaction metadata?
+    │     ├── 模板存在且 Agent 在模板中? → 按方案分发 ✓
+    │     ├── 模板存在但 Agent 不在里面? → fallback 模型 + UNKNOWN_AGENT 警告
+    │     └── 模板不存在? → HTTP 400 错误
+    │
+    └── 无 transaction metadata → fallback 模型（静默降级）
+```
+
+| 场景 | 系统行为 |
+|------|---------|
+| 无 transaction metadata | 使用 fallback 模型，正常转发 |
+| 引用不存在的模板 | 返回 HTTP 400: `{"error": "Template 'xxx' not found"}` |
+| Agent 不在模板中 | 使用 fallback 模型 + UNKNOWN_AGENT 警告 |
+| Profile 不存在 | 降级为 medium Profile + PROFILE_NOT_FOUND 警告 |
+| 无模型满足约束 | 使用 fallback 模型 + NO_CANDIDATE 警告 |
+| LLM 调用失败 | 沿 Failover 链重试（仅当次请求，不影响全局方案） |
+
+### 配置变更与重启
+
+**重要**：当前版本修改配置文件后需重启 litellm 进程才能生效（Docker 环境下 inotify 不触发文件变更事件）。
+
+#### 可修改的配置文件
+
+| 文件 | 修改内容 | 影响 |
+|------|---------|------|
+| `config/transaction_templates.yaml` | 增删 Agent、修改 Profile 引用、修改 override_model | 方案表变化 |
+| `config/capability_profiles.yaml` | 修改 Profile 权重、约束参数 | 模型选择逻辑变化 |
+| `config/models.yaml` | 增删模型、修改参数、标记 `available: false` | 可用模型池变化 |
+| `config/config.yaml` | 切换 `routing_plugin`（conversation / transaction） | 路由策略切换 |
+
+#### 操作步骤
+
+```bash
+# === 本地开发（Docker Compose） ===
+# 配置文件通过 volume 挂载（./config:/app/config），改本地文件即可
+
+# 1. 修改本地 config/ 目录下的配置文件
+vim config/transaction_templates.yaml
+
+# 2. 重启 litellm 进程（不需要重建镜像）
+docker exec aegis-router supervisorctl restart litellm
+
+# 3. 等待约 20 秒启动完成
+
+# 4. 验证新配置生效
+curl -X POST http://localhost:8000/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_MASTER_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"any","messages":[{"role":"user","content":"test"}],"metadata":{"transaction":{"template":"resume_screening","agent":"skill_matcher"}}}'
+# 检查响应中 model 字段是否变为预期模型
+
+
+# === K8s 环境 ===
+# 配置文件通过 ConfigMap 挂载
+
+# 1. 修改 ConfigMap
+kubectl edit configmap aegis-router-config
+# 或修改本地 yaml 后 apply:
+kubectl apply -f k8s/configmap.yaml
+
+# 2. 重启 Pod（ConfigMap 变更不会自动触发 Pod 重启）
+kubectl rollout restart deployment aegis-router
+
+# 3. 等待新 Pod 就绪
+kubectl rollout status deployment aegis-router
+```
+
+#### 切换路由插件
+
+```bash
+# 切换为对话级路由
+# 修改 config/config.yaml:
+#   routing_plugin: conversation
+
+# 切换为事务级路由
+# 修改 config/config.yaml:
+#   routing_plugin: transaction
+
+# 修改后重启生效
+docker exec aegis-router supervisorctl restart litellm
+```
+
+#### 标记模型不可用
+
+当某个模型暂时不可用（代理挂了、服务下线等），在 `config/models.yaml` 中标记：
+
+```yaml
+- name: some-unavailable-model
+  litellm_model: openai/xxx
+  params:
+    available: false   # 评分时跳过，不会被分配给任何 Agent
+    # ... 其他参数保留
+```
+
+重启后，该模型不再被分配。恢复时改为 `available: true`（或删除该行）再重启。
 
 ---
 

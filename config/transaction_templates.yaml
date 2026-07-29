@@ -1,0 +1,127 @@
+﻿# =============================================================================
+# AegisRouter 事务级路由 — 业务流程模板配置文件
+# =============================================================================
+#
+# 本文件定义了系统预置的业务流程模板（Transaction Templates）。
+# 每个模板描述一个多 Agent 协作的业务流程，系统在启动时为模板中的每个 Agent
+# 预计算最优模型分配方案，之后所有请求直接查表分发，延迟 < 0.1ms。
+#
+# === 核心概念 ===
+#
+# 模板（Template）：一组有序 Agent 组成的业务流程。
+# Agent：流程中的一个处理节点，声明所需的能力 Profile。
+# 能力 Profile（capability_profile）：描述 Agent 对模型能力的需求特征，
+#   系统根据 Profile 的评分权重和约束条件，从 models.yaml 中自动匹配最优模型。
+#   可用的 Profile 定义在 config/capability_profiles.yaml 中：
+#     - lightweight      : 低延迟低成本，简单分类/意图识别
+#     - medium           : 平衡质量和成本
+#     - strong_reasoning : 强推理，复杂逻辑/数学/分析
+#     - code_specialist  : 代码专精
+#     - long_context     : 超长上下文
+#     - heavy            : 最强模型，复杂推理
+#
+# === 字段说明 ===
+#
+# templates:                     顶层字段，包含所有模板定义
+#   <template_name>:             模板唯一标识（用作查表 key 的一部分）
+#     description:               模板描述（仅供文档/日志使用）
+#     agents:                    Agent 列表（按流程顺序排列）
+#       - name:                  Agent 标识（同一模板内唯一）
+#         capability_profile:    能力 Profile 名称（必填，用于自动选模型）
+#         override_model:        模型覆盖（可选，管理员直接指定模型，跳过评分）
+#
+# === 模型选择机制 ===
+#
+# 正常流程：capability_profile → 加载 Profile 评分权重 → 对所有模型打分
+#           → 过滤不满足约束的模型 → 选最高分模型
+#
+# 覆盖流程：如果指定了 override_model，则直接使用该模型，跳过 Profile 评分。
+#           适用于管理员需要固定使用某个特定模型的场景（如合规要求、性能测试等）。
+#           override_model 的值必须是 config/models.yaml 中已定义的模型名称。
+#
+# === 同一 Agent 跨模板复用 ===
+#
+# 注意：同一个 Agent 名称可以出现在不同模板中，且可以使用不同的 Profile。
+# 例如下面的 compliance_checker 在 resume_screening 中使用 medium Profile，
+# 而在 supplier_evaluation 中也使用 medium Profile。系统通过
+# (template_name, agent_name) 二元组唯一确定模型分配，互不干扰。
+#
+# =============================================================================
+
+templates:
+  # ---------------------------------------------------------------------------
+  # resume_screening: 简历筛选流程
+  # 用于自动化招聘中的简历初筛环节
+  # 流程：意图分类 → 简历解析 → 技能匹配 → 合规检查
+  # ---------------------------------------------------------------------------
+  resume_screening:
+    description: "简历筛选流程"
+    agents:
+      - name: intent_classifier
+        capability_profile: lightweight        # 简单意图分类，追求低延迟低成本
+
+      - name: resume_parser
+        capability_profile: long_context       # 简历可能很长，需要大上下文窗口
+
+      - name: skill_matcher
+        capability_profile: strong_reasoning   # 技能匹配需要复杂推理能力
+
+      - name: compliance_checker
+        capability_profile: medium             # 合规检查平衡质量与成本即可
+
+  # ---------------------------------------------------------------------------
+  # code_review: 代码审查流程
+  # 用于自动化代码审查，发现问题并提供修复建议
+  # 流程：代码分析 → 问题检测 → 修复建议
+  # ---------------------------------------------------------------------------
+  code_review:
+    description: "代码审查流程"
+    agents:
+      - name: code_analyzer
+        capability_profile: code_specialist    # 代码分析需要代码专精模型
+
+      - name: issue_detector
+        capability_profile: strong_reasoning   # 问题检测需要强推理能力
+
+      - name: fix_suggester
+        capability_profile: code_specialist    # 生成修复代码同样需要代码专精
+
+  # ---------------------------------------------------------------------------
+  # supplier_evaluation: 供应商评估流程
+  # 用于供应商绩效评估与分级管理
+  # 流程：数据采集 → 绩效评分 → 合规检查 → 分级判定
+  # 注意：compliance_checker 与 resume_screening 中同名，但属于不同模板，
+  #       系统会独立为其分配模型（基于各自的 Profile 设置）
+  # ---------------------------------------------------------------------------
+  supplier_evaluation:
+    description: "供应商评估流程"
+    agents:
+      - name: data_collector
+        capability_profile: lightweight        # 数据采集为简单任务
+
+      - name: performance_scorer
+        capability_profile: medium             # 绩效评分需要一定推理但无需最强
+
+      - name: compliance_checker               # 同一 Agent 名称，不同模板
+        capability_profile: strong_reasoning   # 供应商合规需要更强推理（复杂法规分析）
+
+      - name: tier_determiner
+        capability_profile: strong_reasoning   # 综合分级判定需要强推理
+
+  # ---------------------------------------------------------------------------
+  # custom_pipeline: 自定义流程（演示 override_model 用法）
+  # 当管理员需要为特定 Agent 指定固定模型时，使用 override_model 字段。
+  # 典型场景：
+  #   - 合规要求必须使用特定模型
+  #   - A/B 测试指定模型版本
+  #   - 特殊任务需要最强模型但不想修改 Profile 定义
+  # ---------------------------------------------------------------------------
+  custom_pipeline:
+    description: "自定义流程（部分 Agent 手动指定模型）"
+    agents:
+      - name: analyzer
+        capability_profile: medium             # 分析阶段使用 medium Profile 自动选模型
+
+      - name: generator
+        capability_profile: heavy              # 声明需要最强模型
+        override_model: gpt-5.6-sol            # 管理员覆盖：直接指定使用 gpt-5.6-sol

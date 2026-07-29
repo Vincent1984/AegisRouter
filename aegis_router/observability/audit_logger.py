@@ -234,6 +234,131 @@ class AuditLogger:
     # Request Lifecycle
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Plan Generation (FR-8.1)
+    # ------------------------------------------------------------------
+
+    def log_plan_generation_event(
+        self,
+        *,
+        trigger_reason: str,
+        template_name: str,
+        assignments: dict[str, str],
+        total_agents: int,
+    ) -> dict[str, Any]:
+        """记录一条方案生成审计日志。
+
+        在系统启动或配置变更时，为每个模板生成方案后记录。
+
+        Args:
+            trigger_reason: 触发方案生成的原因（如 "startup", "models.yaml" 等）
+            template_name: 模板名称
+            assignments: Agent 到模型的映射 {agent_name → model_name}
+            total_agents: 模板中 Agent 总数
+
+        Returns:
+            生成的审计日志条目字典
+        """
+        entry: dict[str, Any] = {
+            "event": "plan_generation",
+            "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            "trigger_reason": trigger_reason,
+            "template_name": template_name,
+            "assignments": assignments,
+            "total_agents": total_agents,
+        }
+
+        audit_logger.info(json.dumps(entry, ensure_ascii=False))
+        return entry
+
+    # ------------------------------------------------------------------
+    # Transaction Dispatch (FR-8.2)
+    # ------------------------------------------------------------------
+
+    def log_dispatch_event(
+        self,
+        *,
+        request_id: str,
+        template: str,
+        agent: str,
+        assigned_model: str,
+        reason: str,
+        warnings: Optional[list[str]] = None,
+    ) -> dict[str, Any]:
+        """记录一条事务分发审计日志。
+
+        每次事务级路由分发请求时记录。
+
+        Args:
+            request_id: 请求唯一标识
+            template: 模板名称
+            agent: Agent 名称
+            assigned_model: 分配的模型名称
+            reason: 分发原因（"plan", "failover", "fallback", "unknown"）
+            warnings: 告警列表（如 UNKNOWN_AGENT）
+
+        Returns:
+            生成的审计日志条目字典
+        """
+        entry: dict[str, Any] = {
+            "event": "transaction_dispatch",
+            "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            "request_id": request_id,
+            "template": template,
+            "agent": agent,
+            "assigned_model": assigned_model,
+            "reason": reason,
+            "warnings": warnings or [],
+        }
+
+        audit_logger.info(json.dumps(entry, ensure_ascii=False))
+        return entry
+
+    # ------------------------------------------------------------------
+    # Config Change (FR-8.3)
+    # ------------------------------------------------------------------
+
+    def log_config_change_event(
+        self,
+        *,
+        changed_files: list[str],
+        trigger_reason: str,
+        plan_diff_summary: dict[str, Any],
+        total_changes: int,
+    ) -> dict[str, Any]:
+        """记录一条配置变更审计日志。
+
+        当配置变更触发方案重算时记录。
+
+        Args:
+            changed_files: 变更的文件列表
+            trigger_reason: 触发原因（变更文件名拼接）
+            plan_diff_summary: 方案差异摘要，包含:
+                - added_templates: 新增模板列表
+                - removed_templates: 删除模板列表
+                - changed_assignments: 变更的分配列表
+                  [{template, agent, old_model, new_model}, ...]
+            total_changes: 所有变更的总计数
+
+        Returns:
+            生成的审计日志条目字典
+        """
+        entry: dict[str, Any] = {
+            "event": "config_change",
+            "ts": datetime.now(timezone.utc).isoformat(timespec="milliseconds"),
+            "changed_files": changed_files,
+            "trigger_reason": trigger_reason,
+            "plan_diff_summary": plan_diff_summary,
+            "total_changes": total_changes,
+        }
+
+        audit_logger.info(json.dumps(entry, ensure_ascii=False))
+        return entry
+
+    # ------------------------------------------------------------------
+    # Request Lifecycle
+    # ------------------------------------------------------------------
+
     def log_request_lifecycle(
         self,
         *,
