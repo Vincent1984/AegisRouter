@@ -9,14 +9,20 @@ from aegis_router.observability.metrics import (
     metrics_collector,
     percentile,
 )
+from aegis_router.observability.request_logger import (
+    RequestLoggerCallback,
+    load_request_logging_config,
+)
 
 __all__ = [
     "AuditLogger",
     "ComponentStatus",
     "LatencyStats",
     "MetricsCollector",
+    "RequestLoggerCallback",
     "StepTimer",
     "configure_audit_handler",
+    "load_request_logging_config",
     "metrics_collector",
     "percentile",
 ]

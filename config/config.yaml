@@ -105,3 +105,11 @@ general_settings:
   background_health_checks: false
   disable_spend_logs: true
   store_model_in_db: false
+
+# === 请求日志配置 ===
+request_logging:
+  enabled: true
+  output: "file"                      # "stdout"、"file" 或 "both"
+  file_path: "./logs/request_log.jsonl"
+  max_message_length: 4096            # 字符数；0 = 不截断
+  retention_days: 30
